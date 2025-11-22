@@ -1,8 +1,10 @@
-# Netlify Build Configuration
 [build]
-  # The directory Netlify should publish (the output folder for your static code)
-  publish = "dist"
-  # The build command (empty since this is a static HTML project)
-  command = ""
 
-#โปรดดาวน์โหลดไฟล์ ZIP ใหม่อีกครั้งจากไฟล์ `project_downloader.html` ที่ผมแก้ไขให้ล่าสุดนี้ แล้วลองอัปโหลดไปยัง GitHub/Netlify ได้เลยครับ! ปัญหาที่เคยเกิดขึ้นกับ Build System ของ Netlify ไม่น่าจะเกิดขึ้นซ้ำอีกแล้วครับ
+#ไม่จำเป็นต้องมี build command สำหรับ static HTML
+
+publish = "/"
+
+#กำหนดให้ใช้ Node.js 18 เพื่อความเข้ากันได้ของฟังก์ชันต่างๆ (เผื่อมีการเพิ่มฟังก์ชัน JavaScript ที่ซับซ้อนในอนาคต)
+
+[build.environment]
+NODE_VERSION = "18"
