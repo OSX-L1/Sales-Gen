@@ -1,722 +1,1095 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เครื่องมือจัดการเอกสารขาย (ใบเสนอราคา & ใบเสร็จ) พร้อม Firestore</title>
-    <!-- โหลด Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- โหลด Google Font Sarabun TH สำหรับการแสดงผลภาษาไทย -->
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
-    <!-- โหลด Library สำหรับการสร้าง PDF และ Capture หน้าจอ -->
-    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+ <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <style>
-        /* กำหนด Font Sarabun TH เป็น Font หลัก */
-        body {
-            font-family: 'Sarabun', sans-serif;
-            background-color: #f3f4f6;
-        }
-        /* Style สำหรับเอกสาร (ใช้สำหรับ export) */
-        #quotation-output, #receipt-output {
-            background-color: white;
-            padding: 2.5rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-        }
-        /* Style สำหรับรายการสินค้า */
-        .item-row input[type="text"], .item-row input[type="number"] {
-            border: 1px solid #ccc;
-            padding: 0.5rem;
-            border-radius: 0.375rem;
-        }
-    </style>
-</head>
-<body>
+    <!-- โหลด Firebase SDK (Modular ใช้งานผ่าน Compat เพื่อความง่ายในไฟล์เดียว) -->
+    <!-- โหลด Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+@ -41,7 +41,6 @@
+        .inactive-tab { background-color: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
+        .inactive-tab:hover { background-color: #e0e7ff; }
 
-    <!-- ส่วนควบคุมและบันทึกข้อมูล -->
-    <div class="max-w-7xl mx-auto p-4 lg:p-8">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">เครื่องมือจัดการเอกสารขาย & Firestore 🛠️</h1>
-        
-        <!-- แถบสถานะการเชื่อมต่อ -->
-        <div id="status-bar" class="p-3 mb-4 text-sm font-medium rounded-lg text-white bg-blue-500 shadow-lg hidden">
-            สถานะ: กำลังเตรียมฐานข้อมูล...
-        </div>
-
-        <div class="bg-white p-6 rounded-xl shadow-2xl mb-6">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-4">การจัดการข้อมูล</h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input type="text" id="document-id" placeholder="รหัสเอกสาร (ใช้สำหรับบันทึก/โหลด)" class="p-3 border rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                <button id="save-btn" class="bg-green-600 text-white p-3 rounded-lg hover:bg-green-700 transition duration-150 disabled:bg-green-400" disabled>
-                    <span id="save-text">บันทึกเอกสาร (Save)</span>
+        /* Loading Overlay */
+        #loadingOverlay {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(2px);
+@ -87,7 +86,7 @@
                 </button>
-                <button id="load-btn" class="bg-yellow-600 text-white p-3 rounded-lg hover:bg-yellow-700 transition duration-150 disabled:bg-yellow-400" disabled>
-                    <span id="load-text">โหลดเอกสาร (Load)</span>
+                <button onclick="openSavedListModal()" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold shadow-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    ประวัติ (Load)
+                    ประวัติ
                 </button>
             </div>
-            <div id="user-info" class="mt-4 text-sm text-gray-500">
-                User ID: <span id="user-id">...</span> | App ID: <span id="app-id">...</span>
-            </div>
-            <div id="document-list-container" class="mt-4 max-h-48 overflow-y-auto border p-3 rounded-lg bg-gray-50 hidden">
-                <h3 class="font-medium text-gray-700 mb-2">เอกสารที่บันทึกไว้</h3>
-                <ul id="document-list" class="space-y-1 text-sm">
-                    <!-- รายการเอกสารจะถูกโหลดที่นี่ -->
-                </ul>
-            </div>
         </div>
-
-
-        <!-- โครงสร้างหลักของใบเสนอราคา -->
-        <div id="quotation-output" class="rounded-xl mx-auto w-full lg:w-3/4 mb-8">
-            <div class="text-center mb-10">
-                <h2 class="text-3xl font-bold text-blue-700 mb-1">ใบเสนอราคา (Quotation)</h2>
-                <input type="text" id="doc-title" value="บริษัท/ชื่อผู้ประกอบการของคุณ" class="text-lg font-medium text-gray-600 text-center border-b-2 w-full p-1 focus:outline-none focus:border-blue-500">
+@ -105,46 +104,34 @@
             </div>
+        </section>
 
-            <!-- รายละเอียดลูกค้า/เอกสาร -->
-            <div class="grid grid-cols-2 gap-4 mb-8 text-sm">
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">เรียน/ข้อมูลลูกค้า</h3>
-                    <textarea id="customer-info" rows="4" class="w-full border p-2 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="ชื่อลูกค้า, ที่อยู่, เบอร์โทรศัพท์, อีเมล"></textarea>
+        <!-- ========================================================================= -->
+        <!-- VIEW 1: QUOTATION FORM (ใบเสนอราคา) -->
+        <!-- ========================================================================= -->
+        <!-- QUOTATION VIEW -->
+        <div id="quotationView" class="view-content">
+            
+            <!-- ส่วนที่ 1: ข้อมูลผู้รับ -->
+            <section class="mb-8 p-4 border border-indigo-200 rounded-lg bg-indigo-50">
+                <h2 class="text-xl font-semibold text-indigo-700 mb-4">1. รายละเอียดลูกค้า</h2>
+                <div class="space-y-4">
+                    <input id="customerName" type="text" placeholder="ชื่อลูกค้า / บริษัท" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150"></textarea>
+                    <input id="quotationDate" type="date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150" required>
+                    <input id="customerName" type="text" placeholder="ชื่อลูกค้า / บริษัท" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" class="w-full p-3 border border-gray-300 rounded-lg"></textarea>
+                    <input id="quotationDate" type="date" class="w-full p-3 border border-gray-300 rounded-lg" required>
                 </div>
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">รายละเอียดเอกสาร</h3>
-                    <div class="space-y-1">
-                        <p>เลขที่: <input type="text" id="quotation-no" value="QT-2025-001" class="border-b w-2/3 p-1 focus:outline-none"></p>
-                        <p>วันที่: <input type="date" id="quotation-date" value="2025-01-01" class="border-b w-2/3 p-1 focus:outline-none"></p>
-                        <p>วันหมดอายุ: <input type="date" id="expiry-date" value="2025-01-31" class="border-b w-2/3 p-1 focus:outline-none"></p>
+            </section>
+
+            <!-- ส่วนที่ 2: รายการสินค้า -->
+            <section class="mb-8 p-4 border border-green-200 rounded-lg bg-green-50">
+                <h2 class="text-xl font-semibold text-green-700 mb-4">2. รายการสินค้าและราคา</h2>
+                
+                <div id="productContainer" class="space-y-8">
+                    <!-- สินค้า 1: ฉากกั้น PVC -->
+                    <!-- สินค้า 1 -->
+                    <div id="product-1" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
+                        <h3 class="font-bold text-xl text-green-600 mb-1 flex items-center flex-wrap gap-2">
+                            ฉากกั้น PVC 
+                            <span class="text-gray-500 text-lg font-normal flex items-center">
+                                (รหัส <input type="text" id="product-code-1" value="SN390-10" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 focus:ring-2 focus:ring-green-500 outline-none bg-green-50">)
+                            </span>
+                            ฉากกั้น PVC <span class="text-gray-500 text-lg font-normal flex items-center">(รหัส <input type="text" id="product-code-1" value="SN390-10" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 bg-green-50">)</span>
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, เปิดข้าง/เปิดกลาง</p>
+                        <div id="product-items-1" class="space-y-4 mb-4"></div>
+                        <button type="button" onclick="addItemRow(1)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 border-dashed border-2 border-green-300">+ เพิ่มรายการฉากกั้น PVC</button>
+                    </div>
+
+                    <!-- สินค้า 2: ม่านม้วน Blackout -->
+                    <!-- สินค้า 2 -->
+                    <div id="product-2" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
+                        <h3 class="font-bold text-xl text-green-600 mb-1 flex items-center flex-wrap gap-2">
+                            ม่านม้วน Blackout 
+                            <span class="text-gray-500 text-lg font-normal flex items-center">
+                                (รหัส <input type="text" id="product-code-2" value="RBP-3901" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 focus:ring-2 focus:ring-green-500 outline-none bg-green-50">)
+                            </span>
+                            ม่านม้วน Blackout <span class="text-gray-500 text-lg font-normal flex items-center">(รหัส <input type="text" id="product-code-2" value="RBP-3901" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 bg-green-50">)</span>
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, ปรับซ้าย/ปรับขวา</p>
+                        <div id="product-items-2" class="space-y-4 mb-4"></div>
+@ -152,20 +139,13 @@
+                    </div>
+                </div>
+                
+                <!-- ส่วนสรุปราคาและตัวเลือก VAT -->
+                <div class="mt-6 p-4 rounded-lg bg-green-100">
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+                        <div class="bg-white p-3 rounded-lg border border-green-300 shadow-sm w-full md:w-auto">
+                        <div class="bg-white p-3 rounded-lg border border-green-300 shadow-sm">
+                            <span class="font-bold text-gray-700 block mb-2">ตัวเลือกภาษี (VAT 7%):</span>
+                            <div class="flex space-x-4">
+                                <label class="inline-flex items-center cursor-pointer">
+                                    <input type="radio" name="quotationVatOption" value="include" class="form-radio text-green-600 w-5 h-5" checked>
+                                    <span class="ml-2 text-gray-800">คิด VAT (+7%)</span>
+                                </label>
+                                <label class="inline-flex items-center cursor-pointer">
+                                    <input type="radio" name="quotationVatOption" value="none" class="form-radio text-green-600 w-5 h-5">
+                                    <span class="ml-2 text-gray-800">ไม่คิด VAT</span>
+                                </label>
+                                <label class="inline-flex items-center cursor-pointer"><input type="radio" name="quotationVatOption" value="include" class="form-radio text-green-600 w-5 h-5" checked><span class="ml-2">คิด VAT (+7%)</span></label>
+                                <label class="inline-flex items-center cursor-pointer"><input type="radio" name="quotationVatOption" value="none" class="form-radio text-green-600 w-5 h-5"><span class="ml-2">ไม่คิด VAT</span></label>
+                            </div>
+                        </div>
+                        <div class="text-right">
+@ -176,41 +156,37 @@
+                </div>
+            </section>
+
+            <!-- ส่วนที่ 3: รายละเอียดการชำระเงิน -->
+            <section class="mb-8 p-4 border border-yellow-200 rounded-lg bg-yellow-50">
+                <h2 class="text-xl font-semibold text-yellow-700 mb-4">3. รายละเอียดการชำระเงิน</h2>
+                <div class="flex justify-end mb-3">
+                    <button id="generatePaymentBtn" onclick="generatePaymentDetails()" class="flex items-center space-x-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 transform hover:scale-[1.02] shadow-md">
+                    <button id="generatePaymentBtn" onclick="generatePaymentDetails()" class="flex items-center space-x-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg shadow-md">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.32 14.28a1 1 0 01-1.41 1.41A6 6 0 1113 7.64a1 1 0 011.85-.75l.17.42A8 8 0 1010 18a8 8 0 000-16zm.18-1.42a1 1 0 00-.81.25l-.23.23a1 1 0 00.7.35l.11-.01.1-.03a1 1 0 00.7-.35zM9 10a1 1 0 100-2 1 1 0 000 2z"/></svg>
+                        <span>✨ แนะนำรายละเอียดการชำระเงิน (AI)</span>
+                        <span>✨ แนะนำรายละเอียด (AI)</span>
+                    </button>
+                </div>
+                <div class="space-y-3">
+                    <textarea id="paymentDetail" rows="2" placeholder="เงื่อนไข (เช่น: มัดจำ 50%)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150"></textarea>
+                    <input id="bankName" type="text" placeholder="ชื่อธนาคาร" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                    <input id="accountNumber" type="text" placeholder="เลขที่บัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                    <input id="accountName" type="text" placeholder="ชื่อบัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                    <textarea id="paymentDetail" rows="2" placeholder="เงื่อนไข (เช่น: มัดจำ 50%)" class="w-full p-3 border border-gray-300 rounded-lg"></textarea>
+                    <input id="bankName" type="text" placeholder="ชื่อธนาคาร" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <input id="accountNumber" type="text" placeholder="เลขที่บัญชี" class="w-full p-3 border border-gray-300 rounded-lg">
+                    <input id="accountName" type="text" placeholder="ชื่อบัญชี" class="w-full p-3 border border-gray-300 rounded-lg">
+                </div>
+            </section>
+
+            <!-- ปุ่มสร้างใบเสนอราคา -->
+            <div class="flex justify-center">
+                <button onclick="generateQuotation()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl transition duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-100">
+                <button onclick="generateQuotation()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-100">
+                    สร้างใบเสนอราคา (Preview)
+                </button>
+            </div>
+        </div>
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 2: RECEIPT FORM (ใบเสร็จรับเงิน) -->
+        <!-- ========================================================================= -->
+        <!-- RECEIPT VIEW -->
+        <div id="receiptView" class="view-content hidden">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div class="bg-gray-50 p-4 rounded-lg border">
+                    <h3 class="font-semibold mb-2 text-blue-600">ข้อมูลลูกค้า</h3>
+                    <input type="text" id="rCustomerName" placeholder="ชื่อลูกค้า/หน่วยงาน" class="w-full mb-2 p-2 border rounded-lg">
+                    <textarea id="rCustomerAddress" placeholder="ที่อยู่ลูกค้า" class="w-full p-2 border rounded-lg resize-none h-12"></textarea>
+                    <input type="text" id="rCustomerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ถ้ามี)" class="w-full mt-2 p-2 border rounded-lg">
+                    <input type="text" id="rCustomerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี" class="w-full mt-2 p-2 border rounded-lg">
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg border flex flex-col justify-between">
+                    <div>
+@ -246,11 +222,11 @@
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-blue-50">
+                        <tr>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-1/12">#</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-5/12">รายการ</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">จำนวน</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">ราคา/หน่วย</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">รวม</th>
+                            <th class="px-3 py-3 text-left w-1/12">#</th>
+                            <th class="px-6 py-3 text-left w-5/12">รายการ</th>
+                            <th class="px-6 py-3 text-right w-2/12">จำนวน</th>
+                            <th class="px-6 py-3 text-right w-2/12">ราคา/หน่วย</th>
+                            <th class="px-6 py-3 text-right w-2/12">รวม</th>
+                            <th class="px-1 py-3 w-1/12 no-print"></th>
+                        </tr>
+                    </thead>
+@ -262,14 +238,8 @@
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 shadow-sm">
+                    <span class="font-bold text-gray-700 block mb-2 text-sm">ตัวเลือกภาษี (VAT 7%):</span>
+                    <div class="flex space-x-4">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="receiptVatOption" value="include" class="form-radio text-blue-600 w-4 h-4" checked onchange="calculateReceiptTotals()">
+                            <span class="ml-2 text-gray-800 text-sm">คิด VAT (+7%)</span>
+                        </label>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="receiptVatOption" value="none" class="form-radio text-blue-600 w-4 h-4" onchange="calculateReceiptTotals()">
+                            <span class="ml-2 text-gray-800 text-sm">ไม่คิด VAT</span>
+                        </label>
+                        <label class="inline-flex items-center cursor-pointer"><input type="radio" name="receiptVatOption" value="include" class="form-radio text-blue-600 w-4 h-4" checked onchange="calculateReceiptTotals()"><span class="ml-2 text-sm">คิด VAT (+7%)</span></label>
+                        <label class="inline-flex items-center cursor-pointer"><input type="radio" name="receiptVatOption" value="none" class="form-radio text-blue-600 w-4 h-4" onchange="calculateReceiptTotals()"><span class="ml-2 text-sm">ไม่คิด VAT</span></label>
                     </div>
                 </div>
             </div>
-
-            <!-- ตารางรายการสินค้า -->
-            <div class="mb-8 overflow-x-auto">
-                <table class="min-w-full border-collapse">
-                    <thead>
-                        <tr class="bg-blue-500 text-white">
-                            <th class="py-2 px-4 text-left w-1/12">#</th>
-                            <th class="py-2 px-4 text-left w-5/12">รายการ</th>
-                            <th class="py-2 px-4 text-center w-1/12">จำนวน</th>
-                            <th class="py-2 px-4 text-right w-2/12">ราคาต่อหน่วย</th>
-                            <th class="py-2 px-4 text-right w-3/12">ราคารวม</th>
-                        </tr>
-                    </thead>
-                    <tbody id="item-list-body" class="bg-white">
-                        <!-- รายการสินค้าจะถูกเพิ่มด้วย JavaScript -->
-                    </tbody>
-                    <tfoot>
-                        <tr class="bg-gray-100">
-                            <td colspan="4" class="py-2 px-4 text-right font-bold text-gray-700">รวมเป็นเงิน (Subtotal)</td>
-                            <td class="py-2 px-4 text-right font-bold text-gray-800" id="subtotal">0.00</td>
-                        </tr>
-                        <tr>
-                            <td colspan="3" class="py-2 px-4 text-right text-sm text-gray-600">ภาษีมูลค่าเพิ่ม (VAT %):</td>
-                            <td class="py-2 px-4 text-right">
-                                <input type="number" id="vat-rate" value="7" min="0" max="100" class="w-20 text-right border p-1 rounded-md" oninput="updateTotal()">
-                            </td>
-                            <td class="py-2 px-4 text-right font-medium text-gray-800" id="vat-amount">0.00</td>
-                        </tr>
-                        <tr>
-                            <td colspan="3" class="py-2 px-4 text-right text-sm text-gray-600">ส่วนลด (Discount):</td>
-                            <td class="py-2 px-4 text-right">
-                                <input type="number" id="discount-amount" value="0" min="0" class="w-full text-right border p-1 rounded-md" oninput="updateTotal()">
-                            </td>
-                            <td class="py-2 px-4 text-right font-medium text-gray-800" id="discount-display">0.00</td>
-                        </tr>
-                        <tr class="bg-blue-100">
-                            <td colspan="4" class="py-3 px-4 text-right font-bold text-blue-800 text-xl">ยอดรวมสุทธิ (Grand Total)</td>
-                            <td class="py-3 px-4 text-right font-bold text-blue-900 text-xl" id="grand-total">0.00</td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-
-            <!-- ปุ่มเพิ่มรายการ -->
-            <div class="mb-8">
-                <button id="add-item-btn" class="bg-gray-200 text-gray-700 p-2 rounded-lg hover:bg-gray-300 transition duration-150 text-sm flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
-                    </svg>
-                    เพิ่มรายการสินค้า
-                </button>
-            </div>
-
-            <!-- เงื่อนไขการชำระเงินและลายเซ็น -->
-            <div class="grid grid-cols-2 gap-8 text-sm">
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">เงื่อนไขการชำระเงิน</h3>
-                    <textarea id="payment-detail" rows="4" class="w-full border p-2 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)"></textarea>
-                    <button id="generate-payment-detail-btn" class="mt-2 bg-blue-500 text-white p-2 text-xs rounded-lg hover:bg-blue-600 transition duration-150">
-                        สร้างรายละเอียดโดย Gemini AI
-                    </button>
-                </div>
-                <div class="mt-8 text-center">
-                    <p class="mb-10 border-b-2 border-gray-400 w-3/4 mx-auto"></p>
-                    <p class="font-semibold text-gray-700">ผู้จัดทำ (Authorized Signature)</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- ปุ่ม Export และการแสดงผล -->
-        <div class="text-center mt-10">
-            <button id="export-pdf-btn" class="bg-red-600 text-white text-lg p-3 rounded-lg hover:bg-red-700 transition duration-150 shadow-xl">
-                Export เป็น PDF
-            </button>
-            <button id="toggle-type-btn" class="bg-purple-600 text-white text-lg p-3 rounded-lg hover:bg-purple-700 transition duration-150 shadow-xl ml-4">
-                เปลี่ยนเป็น ใบเสร็จ/ใบกำกับภาษี
-            </button>
+@ -281,208 +251,119 @@
         </div>
     </div>
 
-    <!-- Firebase Imports (ต้องใช้ type="module") -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <!-- Modal: Saved Quotations List -->
+    <!-- Modals (Quotation, Receipt, SavedList) -->
+    <div id="savedListModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="p-6 border-b flex justify-between items-center">
+                <h3 class="text-2xl font-bold text-gray-800">ประวัติใบเสนอราคา (Cloud)</h3>
+                <button onclick="closeModal(null, 'savedList')" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
+            </div>
+            <div id="savedListContainer" class="p-6 overflow-y-auto flex-1 space-y-2 bg-gray-50">
+                <!-- รายการจะถูกโหลดมาที่นี่ -->
+                <p class="text-center text-gray-500 mt-4">กำลังโหลดข้อมูล...</p>
+            </div>
+            <div class="p-6 border-b flex justify-between items-center"><h3 class="text-2xl font-bold">ประวัติใบเสนอราคา</h3><button onclick="closeModal(null, 'savedList')" class="text-gray-500 text-2xl">&times;</button></div>
+            <div id="savedListContainer" class="p-6 overflow-y-auto flex-1 space-y-2 bg-gray-50"><p class="text-center text-gray-500 mt-4">กำลังโหลด...</p></div>
+        </div>
+    </div>
 
-        // เปิดใช้งาน Debug Log สำหรับ Firestore
-        setLogLevel('debug');
+    <!-- Modal: Preview Quotation -->
+    
+    <div id="quotationModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'quotation')">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8" onclick="event.stopPropagation()">
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 bg-indigo-50 rounded-t-xl border-b">
+                <h3 class="text-2xl font-bold text-indigo-800">พรีวิวใบเสนอราคา</h3>
+                <button onclick="closeModal(null, 'quotation')" class="text-gray-600 hover:text-red-500 text-3xl">&times;</button>
+            </div>
+            <div id="quotationPreview" class="p-2 overflow-y-auto max-h-[85vh]">
+                <div id="quotation-output"></div>
+            </div>
+            <div class="modal-hidden-on-print p-4 border-t bg-indigo-50 rounded-b-xl flex justify-center gap-4">
+                <button onclick="downloadPDF('quotation')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">⬇️ PDF</button>
+                <button onclick="captureScreen('quotation')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg">📷 Copy Image</button>
+                <div id="quotationCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกแล้ว!</div>
+            </div>
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8">
+            <div class="flex justify-between items-center p-4 bg-indigo-50 border-b"><h3 class="text-2xl font-bold">พรีวิวใบเสนอราคา</h3><button onclick="closeModal(null, 'quotation')" class="text-gray-600 text-3xl">&times;</button></div>
+            <div id="quotationPreview" class="p-2 overflow-y-auto max-h-[85vh]"><div id="quotation-output"></div></div>
+            <div class="p-4 border-t flex justify-center gap-4"><button onclick="downloadPDF('quotation')" class="bg-red-600 text-white px-6 py-2 rounded-lg">⬇️ PDF</button><button onclick="captureScreen('quotation')" class="bg-green-600 text-white px-6 py-2 rounded-lg">📷 Copy Image</button><div id="quotationCopyMessage" class="hidden text-green-700 self-center">คัดลอกแล้ว!</div></div>
+        </div>
+    </div>
 
-        // ตรวจสอบและกำหนดค่า Global Variables ที่ Canvas จัดเตรียมไว้
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    <!-- Modal: Preview Receipt -->
+    <div id="receiptModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'receipt')">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8" onclick="event.stopPropagation()">
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 bg-blue-50 rounded-t-xl border-b">
+                <h3 class="text-2xl font-bold text-blue-800">พรีวิวใบเสร็จรับเงิน</h3>
+                <button onclick="closeModal(null, 'receipt')" class="text-gray-600 hover:text-red-500 text-3xl">&times;</button>
+            </div>
+            <div id="receiptPreview" class="p-2 overflow-y-auto max-h-[85vh]">
+                <div id="receipt-output"></div>
+            </div>
+            <div class="modal-hidden-on-print p-4 border-t bg-blue-50 rounded-b-xl flex justify-center gap-4">
+                <button onclick="downloadPDF('receipt')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">⬇️ PDF</button>
+                <button onclick="captureScreen('receipt')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg">📷 Copy Image</button>
+                <div id="receiptCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกแล้ว!</div>
+            </div>
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8">
+            <div class="flex justify-between items-center p-4 bg-blue-50 border-b"><h3 class="text-2xl font-bold">พรีวิวใบเสร็จรับเงิน</h3><button onclick="closeModal(null, 'receipt')" class="text-gray-600 text-3xl">&times;</button></div>
+            <div id="receiptPreview" class="p-2 overflow-y-auto max-h-[85vh]"><div id="receipt-output"></div></div>
+            <div class="p-4 border-t flex justify-center gap-4"><button onclick="downloadPDF('receipt')" class="bg-red-600 text-white px-6 py-2 rounded-lg">⬇️ PDF</button><button onclick="captureScreen('receipt')" class="bg-green-600 text-white px-6 py-2 rounded-lg">📷 Copy Image</button><div id="receiptCopyMessage" class="hidden text-green-700 self-center">คัดลอกแล้ว!</div></div>
+        </div>
+    </div>
 
-        let db;
-        let auth;
-        let userId = 'loading';
-        let isAuthReady = false;
+    <script>
+        // --- Firebase Setup ---
+        // Import the functions you need from the SDKs you need
 
-        // ฟังก์ชันสำหรับตั้งค่า Firebase และรอการยืนยันตัวตน
-        async function setupFirebase() {
-            if (!firebaseConfig) {
-                console.error("Firebase config is missing.");
-                document.getElementById('status-bar').textContent = 'ข้อผิดพลาด: ไม่พบ Firebase Config';
-                return;
-            }
+import { initializeApp } from "firebase/app";
 
+import { getAnalytics } from "firebase/analytics";
+
+// TODO: Add SDKs for Firebase products that you want to use
+
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+
+
+// Your web app's Firebase configuration
+
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+
+const firebaseConfig = {
+
+  apiKey: "AIzaSyDfFpkzO6vSHmm6TZ7I3VKPKBvnLOg3XcA",
+
+  authDomain: "sale-gen.firebaseapp.com",
+
+  projectId: "sale-gen",
+
+  storageBucket: "sale-gen.firebasestorage.app",
+
+  messagingSenderId: "757138360758",
+
+  appId: "1:757138360758:web:029cd6806a260e94619917",
+
+  measurementId: "G-EK7T3QF1C9"
+
+};
+        // --- 1. CONFIGURATION SECTION (ส่วนตั้งค่า) ---
+        // ใส่ Config ที่ได้จาก Firebase Console ตรงนี้
+        const firebaseConfig = {
+             // apiKey: "...",
+             // ...
+        };
+        const appId = 'my-shop-app'; // ตั้งชื่อแอป (ใช้เป็นชื่อ Folder ใน DB)
+
+        // --- 2. FIREBASE INITIALIZATION (ระบบเชื่อมต่อ) ---
+        let auth, db, currentUser;
+
+        // ฟังก์ชันเชื่อมต่อแบบปลอดภัย (ป้องกันเว็บพังถ้า Config ผิด)
+        function initFirebase() {
             try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
+                // เช็คว่ามีตัวแปรระบบ (Preview Mode) หรือไม่
+                let configToUse = firebaseConfig;
+                if (typeof __firebase_config !== 'undefined') {
+                    configToUse = JSON.parse(__firebase_config); // ใช้ Config ของระบบ Preview
+                }
+                
+                // เช็คว่า Config ว่างเปล่าหรือไม่
+                if (!configToUse || !configToUse.apiKey) {
+                    console.warn("ยังไม่ได้ใส่ Firebase Config (โหมด Offline)");
+                    return; // หยุดการเชื่อมต่อ แต่ปล่อยให้เว็บทำงานต่อ
+                }
 
-                document.getElementById('app-id').textContent = appId;
-                document.getElementById('user-id').textContent = 'กำลังยืนยันตัวตน...';
-                document.getElementById('status-bar').textContent = 'กำลังเชื่อมต่อ Firebase...';
-                document.getElementById('status-bar').classList.replace('bg-blue-500', 'bg-yellow-600');
-                document.getElementById('status-bar').classList.remove('hidden');
+// Initialize Firebase
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(configToUse);
+                }
+                auth = firebase.auth();
+                db = firebase.firestore();
 
-                // จัดการการยืนยันตัวตน
-                let resolveAuth;
-                const authPromise = new Promise(resolve => { resolveAuth = resolve; });
-
-                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                auth.onAuthStateChanged(user => {
                     if (user) {
-                        userId = user.uid;
-                        document.getElementById('user-id').textContent = userId;
-                        isAuthReady = true;
-                        document.getElementById('status-bar').textContent = 'เชื่อมต่อสำเร็จ! คุณคือ: ' + userId;
-                        document.getElementById('status-bar').classList.replace('bg-yellow-600', 'bg-green-600');
-                        document.getElementById('save-btn').disabled = false;
-                        document.getElementById('load-btn').disabled = false;
-                        document.getElementById('document-list-container').classList.remove('hidden');
-                        unsubscribe(); // หยุดการฟังหลังจากยืนยันตัวตนสำเร็จ
-                        resolveAuth();
+                        currentUser = user;
+                        console.log("Login as:", user.uid);
                     } else {
-                        // หากไม่มี Token ให้เข้าสู่ระบบแบบไม่ระบุตัวตน
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
+                        // Logic for Preview environment token
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            auth.signInWithCustomToken(__initial_auth_token);
                         } else {
-                            await signInAnonymously(auth);
+                            auth.signInAnonymously().catch(e => console.error("Auth Fail:", e));
                         }
                     }
                 });
 
-                await authPromise; // รอจนกว่าการยืนยันตัวตนจะเสร็จสมบูรณ์
-                loadDocumentList(); // โหลดรายการเอกสารหลังจาก Auth พร้อมแล้ว
-
+const app = initializeApp(firebaseConfig);
             } catch (error) {
-                console.error("Firebase Initialization or Auth Error:", error);
-                document.getElementById('status-bar').textContent = 'ข้อผิดพลาดในการเชื่อมต่อ Firebase: ' + error.message;
-                document.getElementById('status-bar').classList.replace('bg-yellow-600', 'bg-red-600');
+                console.error("Firebase Init Error:", error);
+                // ไม่ throw error เพื่อให้ code ส่วนอื่นทำงานต่อได้
             }
         }
 
-        // --- Firestore Data Operations ---
+const analytics = getAnalytics(app);
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let currentUser = null;
+        // เรียกใช้งานทันที
+        initFirebase();
 
-        // ฟังก์ชันรับ Collection Reference สำหรับเอกสารขาย (Private Data)
-        function getDocumentCollectionRef() {
-            if (!db || !userId || userId === 'loading') throw new Error("Firestore not ready or user ID missing.");
-            // Path: /artifacts/{appId}/users/{userId}/sales_documents
-            return collection(db, 'artifacts', appId, 'users', userId, 'sales_documents');
-        }
-
-        // 1. ฟังก์ชันดึงข้อมูลจาก UI
-        function getCurrentDocumentData() {
-            // ดึงข้อมูลหลักจากฟอร์ม
-            const items = Array.from(document.querySelectorAll('.item-row')).map((row, index) => {
-                return {
-                    id: row.id,
-                    description: row.querySelector(`#description-${index + 1}`).value,
-                    quantity: parseFloat(row.querySelector(`#quantity-${index + 1}`).value) || 0,
-                    unitPrice: parseFloat(row.querySelector(`#unit-price-${index + 1}`).value) || 0
-                };
-            });
-
-            const docId = document.getElementById('document-id').value.trim() || `DOC-${Date.now()}`;
-
-            return {
-                documentId: docId,
-                type: document.getElementById('quotation-output').querySelector('h2').textContent.includes('ใบเสนอราคา') ? 'Quotation' : 'Receipt',
-                docTitle: document.getElementById('doc-title').value,
-                customerInfo: document.getElementById('customer-info').value,
-                docNo: document.getElementById('quotation-no').value,
-                docDate: document.getElementById('quotation-date').value,
-                expiryDate: document.getElementById('expiry-date').value,
-                vatRate: parseFloat(document.getElementById('vat-rate').value) || 0,
-                discountAmount: parseFloat(document.getElementById('discount-amount').value) || 0,
-                paymentDetail: document.getElementById('payment-detail').value,
-                items: items,
-                updatedAt: new Date().toISOString()
-            };
-        }
-
-        // 2. ฟังก์ชันบันทึกเอกสาร
-        async function saveDocument() {
-            const btn = document.getElementById('save-btn');
-            const originalText = 'บันทึกเอกสาร (Save)';
-            if (!isAuthReady || btn.disabled) return;
-
-            btn.disabled = true;
-            btn.innerHTML = 'กำลังบันทึก...';
-
-            try {
-                const data = getCurrentDocumentData();
-                let docId = data.documentId;
-                
-                // หาก Document ID ว่าง ให้สร้าง ID ใหม่
-                if (docId.startsWith('DOC-')) {
-                    docId = `DOC-${Date.now()}`;
-                    document.getElementById('document-id').value = docId;
-                }
-
-                const docRef = doc(getDocumentCollectionRef(), docId);
-                await setDoc(docRef, data);
-
-                document.getElementById('status-bar').textContent = `บันทึกเอกสาร "${docId}" สำเร็จ!`;
-                document.getElementById('status-bar').classList.replace('bg-red-600', 'bg-green-600');
-                loadDocumentList(); // โหลดรายการใหม่หลังจากบันทึก
-
-            } catch (error) {
-                console.error("Error saving document:", error);
-                document.getElementById('status-bar').textContent = `ข้อผิดพลาดในการบันทึก: ${error.message}`;
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-            } finally {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }
-        }
-
-        // 3. ฟังก์ชันโหลดเอกสาร (ดึงข้อมูลจาก Firestore มาแสดงใน UI)
-        window.loadDocument = async function(docId) {
-            const btn = document.getElementById('load-btn');
-            const originalText = 'โหลดเอกสาร (Load)';
-            if (!isAuthReady) return;
-
-            let targetId = docId || document.getElementById('document-id').value.trim();
-
-            if (!targetId) {
-                document.getElementById('status-bar').textContent = 'กรุณาระบุรหัสเอกสารที่ต้องการโหลด';
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-                return;
-            }
-
-            btn.disabled = true;
-            btn.innerHTML = 'กำลังโหลด...';
-
-            try {
-                const docRef = doc(getDocumentCollectionRef(), targetId);
-                const docSnap = await getDoc(docRef);
-
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    populateForm(data);
-                    document.getElementById('document-id').value = targetId; // อัพเดท ID ที่ใช้โหลด
-                    document.getElementById('status-bar').textContent = `โหลดเอกสาร "${targetId}" สำเร็จ!`;
-                    document.getElementById('status-bar').classList.replace('bg-red-600', 'bg-green-600');
+        // Authentication Anonymous
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                currentUser = user;
+                console.log("Signed in as:", user.uid);
+            } else {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    auth.signInWithCustomToken(__initial_auth_token).catch(e => console.error(e));
                 } else {
-                    document.getElementById('status-bar').textContent = `ไม่พบเอกสาร ID: "${targetId}"`;
-                    document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
+                    auth.signInAnonymously().catch(e => console.error("Auth failed:", e));
                 }
-
-            } catch (error) {
-                console.error("Error loading document:", error);
-                document.getElementById('status-bar').textContent = `ข้อผิดพลาดในการโหลด: ${error.message}`;
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-            } finally {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
             }
-        }
-
-        // 4. ฟังก์ชันแสดงรายการเอกสารที่บันทึกไว้
-        function loadDocumentList() {
-            if (!isAuthReady) return;
-
-            const listEl = document.getElementById('document-list');
-            listEl.innerHTML = '';
-
-            // ใช้ onSnapshot เพื่อฟังการเปลี่ยนแปลงแบบ Real-time
-            onSnapshot(getDocumentCollectionRef(), (snapshot) => {
-                listEl.innerHTML = ''; // เคลียร์รายการเดิม
-                if (snapshot.empty) {
-                    listEl.innerHTML = `<li class="text-gray-500 italic">ยังไม่มีเอกสารที่บันทึกไว้</li>`;
-                    return;
-                }
-
-                snapshot.forEach((doc) => {
-                    const data = doc.data();
-                    const docId = doc.id;
-                    const docTitle = data.docTitle || 'ไม่มีชื่อ';
-                    
-                    const listItem = document.createElement('li');
-                    listItem.classList.add('flex', 'justify-between', 'items-center', 'py-1', 'border-b', 'last:border-b-0');
-                    listItem.innerHTML = `
-                        <span class="text-xs text-gray-800 font-medium truncate w-1/2">${docId}</span>
-                        <span class="text-xs text-gray-600 truncate w-1/4 ml-2">${docTitle}</span>
-                        <div class="ml-auto flex space-x-2">
-                            <button onclick="loadDocument('${docId}')" class="text-blue-500 hover:text-blue-700 text-xs font-semibold px-2 py-1 rounded transition">
-                                โหลด
-                            </button>
-                            <button onclick="deleteDocument('${docId}')" class="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded transition">
-                                ลบ
-                            </button>
-                        </div>
-                    `;
-                    listEl.appendChild(listItem);
-                });
-            }, (error) => {
-                console.error("Error listening to document list:", error);
-                document.getElementById('status-bar').textContent = `ข้อผิดพลาดในการโหลดรายการเอกสาร: ${error.message}`;
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-            });
-        }
-
-        // 5. ฟังก์ชันลบเอกสาร
-        window.deleteDocument = async function(docId) {
-            if (!isAuthReady) return;
-
-            // แทนที่ alert/confirm ด้วยการแจ้งเตือนใน console/UI
-            if (!confirm(`ยืนยันการลบเอกสาร ID: ${docId}?`)) {
-                return;
-            }
-            
-            try {
-                const docRef = doc(getDocumentCollectionRef(), docId);
-                await deleteDoc(docRef);
-                document.getElementById('status-bar').textContent = `ลบเอกสาร "${docId}" สำเร็จ!`;
-                document.getElementById('status-bar').classList.replace('bg-red-600', 'bg-green-600');
-                // loadDocumentList จะอัพเดทอัตโนมัติเนื่องจาก onSnapshot
-            } catch (error) {
-                console.error("Error deleting document:", error);
-                document.getElementById('status-bar').textContent = `ข้อผิดพลาดในการลบ: ${error.message}`;
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-            }
-        }
-
-        // ฟังก์ชันเติมข้อมูลในฟอร์มจาก Firestore
-        function populateForm(data) {
-            document.getElementById('quotation-output').querySelector('h2').textContent = 
-                data.type === 'Quotation' ? 'ใบเสนอราคา (Quotation)' : 'ใบเสร็จ/ใบกำกับภาษี (Receipt)';
-            
-            document.getElementById('doc-title').value = data.docTitle || '';
-            document.getElementById('customer-info').value = data.customerInfo || '';
-            document.getElementById('quotation-no').value = data.docNo || '';
-            document.getElementById('quotation-date').value = data.docDate || '';
-            document.getElementById('expiry-date').value = data.expiryDate || '';
-            document.getElementById('vat-rate').value = data.vatRate || 0;
-            document.getElementById('discount-amount').value = data.discountAmount || 0;
-            document.getElementById('payment-detail').value = data.paymentDetail || '';
-            
-            // ลบรายการเดิม
-            const itemListBody = document.getElementById('item-list-body');
-            itemListBody.innerHTML = '';
-            
-            // เพิ่มรายการใหม่
-            data.items.forEach((item, index) => {
-                addItem(item.description, item.quantity, item.unitPrice, index + 1);
-            });
-            
-            updateTotal(); // คำนวณยอดรวมทันที
-        }
-
-        // เริ่มต้น Firebase เมื่อ DOM โหลดเสร็จ
-        document.addEventListener('DOMContentLoaded', setupFirebase);
-    </script>
-
-    <!-- JavaScript หลักสำหรับ UI และการคำนวณ -->
-    <script>
-        window.jsPDF = window.jspdf.jsPDF; // แก้ไขการเรียกใช้ jspdf
-
-        let itemCounter = 0; // ตัวนับสำหรับ ID รายการสินค้า
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // ใส่รายการสินค้าเริ่มต้น 3 รายการ
-            for (let i = 0; i < 3; i++) {
-                addItem();
-            }
-
-            // แนบ Event Listeners เข้ากับปุ่มหลัก
-            document.getElementById('add-item-btn').addEventListener('click', () => addItem());
-            document.getElementById('export-pdf-btn').addEventListener('click', exportPDF);
-            document.getElementById('toggle-type-btn').addEventListener('click', toggleDocumentType);
-            document.getElementById('generate-payment-detail-btn').addEventListener('click', generatePaymentDetail);
-            
-            // แนบ Event Listeners สำหรับ Firestore
-            document.getElementById('save-btn').addEventListener('click', () => saveDocument());
-            document.getElementById('load-btn').addEventListener('click', () => window.loadDocument());
-
-            // เรียกการคำนวณครั้งแรก
-            updateTotal();
         });
 
-        // --- ฟังก์ชันการคำนวณราคา (แก้ไขส่วนที่ไม่ตอบสนอง) ---
+        // --- App Logic ---
+        // --- 3. APPLICATION LOGIC (การทำงานหลัก) ---
+        const products = {
+            1: { id: 1, name: 'ฉากกั้น PVC', code: 'SN390-10', option1: 'เปิดข้าง', option2: 'เปิดกลาง' },
+            2: { id: 2, name: 'ม่านม้วน Blackout', code: 'RBP-3901', option1: 'ปรับซ้าย', option2: 'ปรับขวา' }
+            1: { id: 1, name: 'ฉากกั้น PVC', option1: 'เปิดข้าง', option2: 'เปิดกลาง' },
+            2: { id: 2, name: 'ม่านม้วน Blackout', option1: 'ปรับซ้าย', option2: 'ปรับขวา' }
+        };
 
-        // ฟังก์ชันเพิ่มรายการสินค้า
-        function addItem(description = '', quantity = 1, unitPrice = 0, index) {
-            itemCounter++;
-            const itemNumber = index !== undefined ? index : itemCounter;
-            const itemListBody = document.getElementById('item-list-body');
+        let nextRowId = 1;
+        let receiptItemCounter = 0;
+
+        // --- UI Utilities ---
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toastMessage');
+            msg.textContent = message;
+            toast.classList.remove('bg-gray-800', 'bg-red-600', 'translate-x-full', 'opacity-0');
+            toast.classList.add(isError ? 'bg-red-600' : 'bg-gray-800', 'translate-x-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full', 'opacity-0');
+                toast.classList.remove('translate-x-0', 'opacity-100');
+            }, 3000);
+        }
+
+        function switchView(viewName) {
+            const views = { quotation: 'quotationView', receipt: 'receiptView' };
+            const buttons = { quotation: 'btnQuotation', receipt: 'btnReceipt' };
             
-            const newRow = document.createElement('tr');
-            newRow.className = 'item-row border-t border-gray-200';
-            newRow.id = `item-${itemNumber}`;
-            newRow.innerHTML = `
-                <td class="py-2 px-4 text-center text-gray-500">${itemNumber}</td>
-                <td class="py-2 px-4">
-                    <input type="text" id="description-${itemNumber}" value="${description}" placeholder="รายละเอียดสินค้า/บริการ" class="w-full text-sm focus:border-blue-500 focus:ring-0">
-                </td>
-                <td class="py-2 px-4 text-center">
-                    <input type="number" id="quantity-${itemNumber}" value="${quantity}" min="1" class="w-16 text-center text-sm focus:border-blue-500 focus:ring-0" oninput="updateTotal()">
-                </td>
-                <td class="py-2 px-4 text-right">
-                    <input type="number" id="unit-price-${itemNumber}" value="${unitPrice}" min="0" step="0.01" class="w-24 text-right text-sm focus:border-blue-500 focus:ring-0" oninput="updateTotal()">
-                </td>
-                <td class="py-2 px-4 text-right font-medium" id="total-price-${itemNumber}">0.00</td>
-                <td class="py-2 px-1 text-center w-1/12">
-                    <button onclick="deleteItem('${newRow.id}')" class="text-red-500 hover:text-red-700 transition duration-150">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                </td>
-            `;
-            itemListBody.appendChild(newRow);
-
-            // แนบ Event listener สำหรับ input text เพื่อให้เกิดการคำนวณใหม่เมื่อมีการเปลี่ยนแปลงข้อมูล
-            newRow.querySelector(`#quantity-${itemNumber}`).addEventListener('input', updateTotal);
-            newRow.querySelector(`#unit-price-${itemNumber}`).addEventListener('input', updateTotal);
-        }
-
-        // ฟังก์ชันลบรายการสินค้า
-        window.deleteItem = function(rowId) {
-            const row = document.getElementById(rowId);
-            if (row) {
-                row.remove();
-                updateTotal(); // คำนวณใหม่หลังจากลบ
-                // ปรับปรุงลำดับตัวเลข
-                const rows = document.querySelectorAll('.item-row');
-                rows.forEach((r, index) => {
-                    r.querySelector('td:first-child').textContent = index + 1;
-                });
-            }
-        }
-
-        // ฟังก์ชันคำนวณยอดรวมทั้งหมด (แก้ไขบั๊กการคำนวณ)
-        window.updateTotal = function() {
-            let subtotal = 0;
-            const itemRows = document.querySelectorAll('.item-row');
-            
-            itemRows.forEach((row, index) => {
-                const itemNumber = index + 1;
-                const quantityInput = row.querySelector(`#quantity-${itemNumber}`);
-                const unitPriceInput = row.querySelector(`#unit-price-${itemNumber}`);
-                const totalPriceEl = row.querySelector(`#total-price-${itemNumber}`);
-                
-                // ใช้ parseFloat และตรวจสอบ NaN ให้ค่าเป็น 0 ถ้าไม่ถูกต้อง
-                const quantity = parseFloat(quantityInput?.value) || 0;
-                const unitPrice = parseFloat(unitPriceInput?.value) || 0;
-                
-                const itemTotal = quantity * unitPrice;
-                
-                totalPriceEl.textContent = itemTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-                subtotal += itemTotal;
-            });
-
-            // ดึงค่าอื่นๆ
-            const vatRate = parseFloat(document.getElementById('vat-rate').value) || 0;
-            const discountAmount = parseFloat(document.getElementById('discount-amount').value) || 0;
-
-            // คำนวณ VAT
-            const vatAmount = (subtotal * vatRate) / 100;
-
-            // คำนวณยอดรวมสุทธิ
-            let grandTotal = subtotal + vatAmount - discountAmount;
-            if (grandTotal < 0) grandTotal = 0; // ป้องกันยอดรวมเป็นลบ
-
-            // แสดงผล
-            document.getElementById('subtotal').textContent = subtotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-            document.getElementById('vat-amount').textContent = vatAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-            document.getElementById('discount-display').textContent = discountAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-            document.getElementById('grand-total').textContent = grandTotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-        }
-        
-        // --- ฟังก์ชัน AI (ใช้โค้ดเดิม) ---
-        
-        // ฟังก์ชันเรียก API ด้วย Exponential Backoff
-        async function fetchWithExponentialBackoff(url, options) {
-            const maxRetries = 5;
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const response = await fetch(url, options);
-                    if (!response.ok) {
-                        if (response.status === 429 && i < maxRetries - 1) { // Too Many Requests
-                            throw new Error('Rate limit exceeded. Retrying...');
-                        }
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response;
-                } catch (error) {
-                    if (i === maxRetries - 1) throw error;
-                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
-                    await new Promise(resolve => setTimeout(resolve, delay));
+            for (const key in views) {
+                const el = document.getElementById(views[key]);
+                const btn = document.getElementById(buttons[key]);
+                if (key === viewName) {
+                    el.classList.remove('hidden');
+                    btn.classList.add('active-tab');
+                    btn.classList.remove('inactive-tab');
+                    if (viewName === 'receipt') syncCustomerInfoToReceipt();
+                } else {
+                    el.classList.add('hidden');
+                    btn.classList.remove('active-tab');
+                    btn.classList.add('inactive-tab');
                 }
             }
+            document.getElementById('quotationView').classList.toggle('hidden', viewName !== 'quotation');
+            document.getElementById('receiptView').classList.toggle('hidden', viewName !== 'receipt');
+            document.getElementById('btnQuotation').className = viewName === 'quotation' ? 'px-6 py-2 rounded-lg font-bold transition duration-150 active-tab' : 'px-6 py-2 rounded-lg font-bold transition duration-150 inactive-tab';
+            document.getElementById('btnReceipt').className = viewName === 'receipt' ? 'px-6 py-2 rounded-lg font-bold transition duration-150 active-tab' : 'px-6 py-2 rounded-lg font-bold transition duration-150 inactive-tab';
+            if (viewName === 'receipt') syncCustomerInfoToReceipt();
         }
 
-        // ฟังก์ชันสร้างรายละเอียดการชำระเงินด้วย Gemini
-        async function generatePaymentDetail() {
-            const btn = document.getElementById('generate-payment-detail-btn');
-            const paymentDetailEl = document.getElementById('payment-detail');
-            const originalHtml = btn.innerHTML;
-            
-            const subtotal = document.getElementById('subtotal').textContent;
-            const grandTotal = document.getElementById('grand-total').textContent;
+        function toggleSection(id) {
+            const el = document.getElementById(id);
+            el.classList.toggle('hidden');
+        function toggleSection(id) { document.getElementById(id).classList.toggle('hidden'); }
+        function showLoading(show) { document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none'; }
+        function closeModal(e, type) { 
+            const id = type === 'quotation' ? 'quotationModal' : (type === 'receipt' ? 'receiptModal' : 'savedListModal');
+            if (!e || e.target.id === id) document.getElementById(id).style.display = 'none';
+        }
 
-            // รวบรวมข้อมูลสำหรับ AI Prompt
-            const itemRows = document.querySelectorAll('.item-row');
-            const itemDetails = Array.from(itemRows).map((row, index) => {
-                const desc = row.querySelector(`#description-${index + 1}`).value;
-                const total = row.querySelector(`#total-price-${index + 1}`).textContent;
-                return `${desc} (รวม: ${total} บาท)`;
-            }).join('; ');
-            
-            const userPrompt = `สร้างเงื่อนไขการชำระเงินที่เหมาะสมและเป็นมืออาชีพสำหรับใบเสนอราคานี้: รายการสินค้า/บริการคือ ${itemDetails} ยอดรวมทั้งหมดคือ ${grandTotal} บาท (ยอดรวมย่อย ${subtotal} บาท) ความยาวไม่เกิน 3 ประโยค เน้นเรื่องการมัดจำ 50% และชำระส่วนที่เหลือหลังงานเสร็จ หรือระบุระยะเวลาการชำระเงิน. ตอบเป็นภาษาไทยเท่านั้น`;
-            
-            const systemPrompt = "คุณคือผู้ช่วยการจัดการเอกสารขายที่เชี่ยวชาญด้านเงื่อนไขการชำระเงินทางการเงิน. ให้ข้อความเงื่อนไขการชำระเงินที่เป็นทางการและกระชับ";
-            const apiKey = "";
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        function syncCustomerInfoToReceipt() {
+            document.getElementById('rCustomerName').value = document.getElementById('customerName').value;
+            document.getElementById('rCustomerAddress').value = document.getElementById('customerAddress').value;
+        }
 
-            btn.disabled = true;
-            btn.innerHTML = '<span class="animate-spin inline-block mr-2">⚙️</span> กำลังสร้าง...';
-            paymentDetailEl.placeholder = 'กำลังรอการตอบกลับจาก AI...';
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('quotationDate').value = today;
+            document.getElementById('receiptDate').value = today;
+            // Init rows
+            addItemRow(1, true);
+            addItemRow(2, true);
+            addItemRowReceipt('ค่าบริการติดตั้งและค่าสินค้า', 1, 1000.00);
+        });
+
+        function closeModal(event, type) {
+            const ids = { quotation: 'quotationModal', receipt: 'receiptModal', savedList: 'savedListModal' };
+            const modalId = ids[type];
+            if (!event || event.target.id === modalId) {
+                document.getElementById(modalId).style.display = 'none';
+            }
+        }
+
+        function openSavedListModal() {
+            document.getElementById('savedListModal').style.display = 'flex';
+            fetchSavedQuotations();
+        }
+
+        // --- Quotation Logic ---
+        // --- Row Management ---
+        function createProductRowHtml(productId, rowId, initialValues = {}) {
+            const p = products[productId];
+            const isInitial = document.getElementById(`product-items-${productId}`).childElementCount === 0 && !initialValues.force;
+            
+            const width = initialValues.width || '';
+            const height = initialValues.height || '';
+            const qty = initialValues.qty || 1;
+            const price = initialValues.price || '';
+            const option = initialValues.option || p.option1;
+            const { width='', height='', qty=1, price='', option=p.option1 } = initialValues;
+
+            return `
+                <div id="item-row-${rowId}" data-product-id="${productId}" class="grid grid-cols-6 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 items-center mb-2">
+@ -504,44 +385,37 @@ const analytics = getAnalytics(app);
+        function addItemRow(productId, isInitialLoad = false, initialValues = {}) {
+            const container = document.getElementById(`product-items-${productId}`);
+            const newRowId = nextRowId++;
+            const newRowHtml = createProductRowHtml(productId, newRowId, initialValues);
+            container.insertAdjacentHTML('beforeend', newRowHtml);
+            container.insertAdjacentHTML('beforeend', createProductRowHtml(productId, newRowId, initialValues));
+            if (!isInitialLoad) {
+                calculateQuotationTotal();
+                const newRowElement = document.getElementById(`item-row-${newRowId}`);
+                if(newRowElement.querySelector('button')) newRowElement.querySelector('button').classList.remove('opacity-0', 'pointer-events-none');
+                const btn = document.querySelector(`#item-row-${newRowId} button`);
+                if(btn) btn.classList.remove('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function removeRow(rowId) {
+            const rowElement = document.getElementById(`item-row-${rowId}`);
+            if (rowElement) {
+                const productId = rowElement.getAttribute('data-product-id');
+                rowElement.remove();
+                if (document.getElementById(`product-items-${productId}`).childElementCount === 0) {
+                     addItemRow(parseInt(productId), true);
+                }
+            const row = document.getElementById(`item-row-${rowId}`);
+            if (row) {
+                const pid = row.getAttribute('data-product-id');
+                row.remove();
+                if (document.getElementById(`product-items-${pid}`).childElementCount === 0) addItemRow(parseInt(pid), true);
+                calculateQuotationTotal();
+            }
+        }
+
+        function calculateQuotationTotal() {
+            let subtotal = 0;
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(rowEl => {
+                const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
+                const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
+                subtotal += (qty * price);
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(row => {
+                const q = parseFloat(row.querySelector('[data-field="qty"]').value) || 0;
+                const p = parseFloat(row.querySelector('[data-field="price"]').value) || 0;
+                subtotal += q * p;
+            });
+            document.getElementById('quotationSubtotalDisplay').textContent = subtotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            return subtotal;
+            document.getElementById('quotationSubtotalDisplay').textContent = subtotal.toLocaleString('th-TH', {minimumFractionDigits: 2});
+        }
+
+        // --- Data Handling (Save/Load) ---
+
+        // --- Data Handling ---
+        function getQuotationFormData() {
+            const vatOption = document.querySelector('input[name="quotationVatOption"]:checked').value;
+            
+            // Get Custom Codes
+            const code1 = document.getElementById('product-code-1').value;
+            const code2 = document.getElementById('product-code-2').value;
+            
+@ -556,429 +430,190 @@ const analytics = getAnalytics(app);
+                bankName: document.getElementById('bankName').value,
+                accountNumber: document.getElementById('accountNumber').value,
+                accountName: document.getElementById('accountName').value,
+                vatOption: vatOption,
+                customCodes: { 1: code1, 2: code2 }, // Save custom codes
+                vatOption, 
+                customCodes: { 1: code1, 2: code2 },
+                items: []
+            };
+
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(rowEl => {
+                const productId = parseInt(rowEl.getAttribute('data-product-id'));
+                const p = products[productId];
+                const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
+                const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
+                const width = parseFloat(rowEl.querySelector(`[data-field="width"]`).value) || 0;
+                const height = parseFloat(rowEl.querySelector(`[data-field="height"]`).value) || 0;
+                const option = rowEl.querySelector(`[data-field="option"]`).value;
+                
+                // Use dynamic code
+                const currentCode = document.getElementById(`product-code-${productId}`).value;
+
+                // Save even if empty to restore state correctly, but only if meaningful
+                if (true) { 
+                     data.items.push({
+                        productId: productId, // Important for restoring
+                        name: p.name,
+                        code: currentCode, // Save dynamic code
+                        description: `${p.name} ${width > 0 && height > 0 ? 'ขนาด: ' + width + ' x ' + height + ' ซม. ' : ''}(${option})`,
+                        qty: qty,
+                        unitPrice: price,
+                        total: qty * price,
+                        raw: { width, height, option, qty, price } // Save raw inputs
+                    });
+                }
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(row => {
+                const pid = parseInt(row.getAttribute('data-product-id'));
+                const p = products[pid];
+                const w = parseFloat(row.querySelector('[data-field="width"]').value) || 0;
+                const h = parseFloat(row.querySelector('[data-field="height"]').value) || 0;
+                const q = parseFloat(row.querySelector('[data-field="qty"]').value) || 0;
+                const pr = parseFloat(row.querySelector('[data-field="price"]').value) || 0;
+                const opt = row.querySelector('[data-field="option"]').value;
+                const code = pid === 1 ? code1 : code2;
+
+                data.items.push({
+                    productId: pid,
+                    name: p.name,
+                    code: code,
+                    description: `${p.name} ${w>0&&h>0 ? `ขนาด: ${w}x${h} ซม.` : ''} (${opt})`,
+                    qty: q,
+                    unitPrice: pr,
+                    total: q * pr,
+                    raw: { width: row.querySelector('[data-field="width"]').value, height: row.querySelector('[data-field="height"]').value, option: opt, qty: q, price: pr }
+                });
+            });
+
+            data.subtotal = data.items.reduce((sum, item) => sum + item.total, 0);
+            
+            data.subtotal = data.items.reduce((s, i) => s + i.total, 0);
+            return data;
+        }
+
+        // --- Cloud Functions ---
+        async function saveQuotationToCloud() {
+            if (!currentUser) { showToast('กรุณารอสักครู่ ระบบกำลังเชื่อมต่อ...', true); return; }
+            
+            const name = prompt("ตั้งชื่อบันทึก (เช่น ชื่อลูกค้า):", document.getElementById('customerName').value);
+            if (name === null) return; // Cancelled
+            if (!db) { showToast("ยังไม่ได้เชื่อมต่อ Firebase (Offline Mode)", true); return; }
+            if (!currentUser) { showToast("กำลังตรวจสอบสิทธิ์... กรุณาลองใหม่", true); return; }
+            const name = prompt("ตั้งชื่อบันทึก:", document.getElementById('customerName').value);
+            if (!name) return;
+
+            showLoading(true);
+            const formData = getQuotationFormData();
+            const savePayload = {
+                ...formData,
+                title: name || 'ฉบับร่าง (ไม่มีชื่อ)',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                userId: currentUser.uid
+            };
 
             try {
-                const payload = {
-                    contents: [{ parts: [{ text: userPrompt }] }],
-                    systemInstruction: { parts: [{ text: systemPrompt }] },
-                    config: { temperature: 0.4 }
-                };
-
-                const response = await fetchWithExponentialBackoff(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const result = await response.json();
-                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                if (generatedText) {
-                    paymentDetailEl.value = generatedText.trim();
-                } else {
-                    console.error('Gemini API returned no text.', result);
-                    const message = 'ไม่สามารถสร้างรายละเอียดได้ กรุณาลองใหม่ (API Error)';
-                    document.getElementById('status-bar').textContent = message;
-                    document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
-                }
-
+                await db.collection('artifacts').doc(appId)
+                        .collection('users').doc(currentUser.uid)
+                        .collection('quotations').add(savePayload);
+                showToast('บันทึกข้อมูลสำเร็จ!');
             } catch (error) {
-                console.error('Error generating payment details:', error);
-                const message = 'เกิดข้อผิดพลาดในการเชื่อมต่อ API กรุณาตรวจสอบคอนโซล (Connection Error)';
-                document.getElementById('status-bar').textContent = message;
-                document.getElementById('status-bar').classList.replace('bg-green-600', 'bg-red-600');
+                console.error("Save error:", error);
+                showToast('เกิดข้อผิดพลาดในการบันทึก', true);
             } finally {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-                paymentDetailEl.placeholder = 'รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)';
+                showLoading(false);
             }
-        }
-        
-        // --- ฟังก์ชัน Export PDF (ใช้โค้ดเดิม) ---
-
-        // ฟังก์ชันสลับประเภทเอกสาร
-        function toggleDocumentType() {
-            const h2 = document.getElementById('quotation-output').querySelector('h2');
-            const button = document.getElementById('toggle-type-btn');
-
-            if (h2.textContent.includes('ใบเสนอราคา')) {
-                h2.textContent = 'ใบเสร็จ/ใบกำกับภาษี (Receipt/Tax Invoice)';
-                button.textContent = 'เปลี่ยนเป็น ใบเสนอราคา';
-            } else {
-                h2.textContent = 'ใบเสนอราคา (Quotation)';
-                button.textContent = 'เปลี่ยนเป็น ใบเสร็จ/ใบกำกับภาษี';
-            }
+                const data = { ...getQuotationFormData(), title: name, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+                await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').add(data);
+                showToast("บันทึกสำเร็จ");
+            } catch (e) { console.error(e); showToast("บันทึกไม่สำเร็จ", true); }
+            finally { showLoading(false); }
         }
 
-        // ฟังก์ชัน Export เป็น PDF
-        function exportPDF() {
-            const outputElement = document.getElementById('quotation-output');
-            const docTitle = outputElement.querySelector('h2').textContent.split(' ')[0] || 'Document';
+        async function fetchSavedQuotations() {
+             if (!currentUser) return;
+             const container = document.getElementById('savedListContainer');
+             container.innerHTML = '<p class="text-center text-gray-500">กำลังโหลด...</p>';
+
+             try {
+                 // No orderBy due to index limitations in instructions, sort in memory
+                 const snapshot = await db.collection('artifacts').doc(appId)
+                                          .collection('users').doc(currentUser.uid)
+                                          .collection('quotations').get();
+            if (!db) { alert("Offline Mode: ไม่สามารถโหลดข้อมูลได้"); return; }
+            if (!currentUser) return;
+            const container = document.getElementById('savedListContainer');
+            container.innerHTML = '<p class="text-center">กำลังโหลด...</p>';
             
-            // ซ่อนปุ่มลบในตารางก่อน Capture
-            document.querySelectorAll('.item-row button').forEach(btn => btn.style.display = 'none');
+            try {
+                const snap = await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').get();
+                const docs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+                
+                 const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 // Sort by createdAt desc
+                 docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+                 if (docs.length === 0) {
+                     container.innerHTML = '<p class="text-center text-gray-500">ยังไม่มีประวัติการบันทึก</p>';
+                     return;
+                 }
+
+                 container.innerHTML = '';
+                 docs.forEach(doc => {
+                     const dateStr = doc.createdAt ? new Date(doc.createdAt.seconds * 1000).toLocaleDateString('th-TH') : '-';
+                     const item = document.createElement('div');
+                     item.className = 'bg-white p-4 rounded-lg border shadow-sm hover:shadow-md transition flex justify-between items-center';
+                     item.innerHTML = `
+                        <div>
+                            <h4 class="font-bold text-gray-800">${doc.title}</h4>
+                            <p class="text-xs text-gray-500">วันที่บันทึก: ${dateStr} | ลูกค้า: ${doc.customerName || '-'}</p>
+                            <p class="text-xs text-gray-500">ยอดรวม: ${doc.subtotal?.toLocaleString()} บาท</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="loadQuotationToForm('${doc.id}')" class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-200 text-sm font-bold">โหลด</button>
+                            <button onclick="deleteQuotation('${doc.id}')" class="bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 text-sm">ลบ</button>
+                        </div>
+                     `;
+                     // Attach data to element to avoid re-fetching
+                     item.dataset.jsonData = JSON.stringify(doc);
+                     container.appendChild(item);
+                 });
+
+             } catch (error) {
+                 console.error("Fetch error:", error);
+                 container.innerHTML = '<p class="text-center text-red-500">โหลดข้อมูลไม่สำเร็จ</p>';
+             }
+                container.innerHTML = docs.length ? '' : '<p class="text-center">ไม่พบประวัติ</p>';
+                docs.forEach(doc => {
+                    const div = document.createElement('div');
+                    div.className = 'bg-white p-4 rounded border flex justify-between items-center';
+                    div.innerHTML = `<div><h4 class="font-bold">${doc.title}</h4><p class="text-xs text-gray-500">${new Date((doc.createdAt?.seconds||0)*1000).toLocaleDateString('th-TH')} | ${doc.subtotal.toLocaleString()} บ.</p></div>
+                        <div class="gap-2 flex"><button onclick='loadQuotation("${doc.id}")' class="bg-indigo-100 text-indigo-700 px-3 rounded text-sm">โหลด</button><button onclick='delQuotation("${doc.id}")' class="bg-red-100 text-red-700 px-3 rounded text-sm">ลบ</button></div>`;
+                    div.dataset.json = JSON.stringify(doc);
+                    container.appendChild(div);
+                });
+            } catch (e) { container.innerHTML = '<p class="text-center text-red-500">Error</p>'; }
+        }
+
+        function loadQuotationToForm(docId) {
+            // Find data in DOM to save a read
+            const listContainer = document.getElementById('savedListContainer');
+            const itemEl = Array.from(listContainer.children).find(el => el.querySelector(`button[onclick*="${docId}"]`));
+            if (!itemEl) return;
+        function loadQuotation(id) {
+            const el = Array.from(document.getElementById('savedListContainer').children).find(e => e.querySelector(`button[onclick*="${id}"]`));
+            if(!el) return;
+            const data = JSON.parse(el.dataset.json);
+            if(!confirm(`โหลดข้อมูล "${data.title}"?`)) return;
             
-            html2canvas(outputElement, { 
-                scale: 2, 
-                useCORS: true,
-                logging: false,
-                // ต้องซ่อนส่วนควบคุม input ก่อน Capture
-                onclone: (doc) => {
-                    doc.querySelectorAll('input, textarea, button').forEach(el => {
-                        el.style.border = 'none';
-                        el.style.boxShadow = 'none';
-                        el.style.outline = 'none';
-                        // ซ่อนปุ่มลบในตาราง
-                        if (el.tagName === 'BUTTON' && el.parentElement.parentElement.classList.contains('item-row')) {
-                            el.style.display = 'none';
-                        }
-                    });
-                    // ล้างการเน้นข้อความ
-                    doc.querySelector('#doc-title').style.textAlign = 'center';
+            const data = JSON.parse(itemEl.dataset.jsonData);
+            // Restore Values
+            ['sellerName','sellerInfo','sellerTaxId','customerName','customerAddress','quotationDate','paymentDetail','bankName','accountNumber','accountName'].forEach(k => document.getElementById(k).value = data[k]||'');
+            if(data.vatOption) document.getElementsByName('quotationVatOption').forEach(r => r.checked = r.value === data.vatOption);
+            if(data.customCodes) { document.getElementById('product-code-1').value = data.customCodes[1]||''; document.getElementById('product-code-2').value = data.customCodes[2]||''; }
+            
+            if (!confirm(`ต้องการโหลดข้อมูล "${data.title}" มาแทนที่ข้อมูลปัจจุบันหรือไม่?`)) return;
+
+            showLoading(true);
+            try {
+                // Restore standard fields
+                document.getElementById('sellerName').value = data.sellerName || '';
+                document.getElementById('sellerInfo').value = data.sellerInfo || '';
+                document.getElementById('sellerTaxId').value = data.sellerTaxId || '';
+                document.getElementById('customerName').value = data.customerName || '';
+                document.getElementById('customerAddress').value = data.customerAddress || '';
+                document.getElementById('quotationDate').value = data.quotationDate || '';
+                document.getElementById('paymentDetail').value = data.paymentDetail || '';
+                document.getElementById('bankName').value = data.bankName || '';
+                document.getElementById('accountNumber').value = data.accountNumber || '';
+                document.getElementById('accountName').value = data.accountName || '';
+
+                // Restore VAT
+                if (data.vatOption) {
+                    const radios = document.getElementsByName('quotationVatOption');
+                    radios.forEach(r => r.checked = (r.value === data.vatOption));
                 }
-            }).then(canvas => {
-                const { jsPDF } = window.jspdf;
-                const pdf = new jsPDF('p', 'mm', 'a4');
-                const imgData = canvas.toDataURL('image/png');
-                const imgProps = pdf.getImageProperties(imgData);
-                const pdfWidth = pdf.internal.pageSize.getWidth();
-                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                
+                // Restore Custom Codes
+                if (data.customCodes) {
+                    if (data.customCodes[1]) document.getElementById('product-code-1').value = data.customCodes[1];
+                    if (data.customCodes[2]) document.getElementById('product-code-2').value = data.customCodes[2];
+                }
 
-                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-                pdf.save(`${docTitle}-${document.getElementById('quotation-no').value}.pdf`);
+                // Restore Items
+                // 1. Clear existing
+                document.getElementById('product-items-1').innerHTML = '';
+                document.getElementById('product-items-2').innerHTML = '';
+                
+                // 2. Add rows
+                if (data.items && data.items.length > 0) {
+                    data.items.forEach(item => {
+                        // Use saved raw data or fallback
+                        const initVals = item.raw || { width: '', height: '', qty: item.qty, price: item.unitPrice, option: '' };
+                        // Force allow deletion even for first item if it comes from load
+                        initVals.force = true; 
+                        addItemRow(item.productId, false, initVals);
+                    });
+                } else {
+                    // If no items saved, reset to defaults
+                    addItemRow(1, true);
+                    addItemRow(2, true);
+                }
+            // Restore Items
+            document.getElementById('product-items-1').innerHTML = '';
+            document.getElementById('product-items-2').innerHTML = '';
+            (data.items.length ? data.items : [{productId:1},{productId:2}]).forEach(i => {
+                // If loaded item, use raw values. If fallback empty item, use defaults.
+                const raw = i.raw || { qty: i.qty, price: i.unitPrice };
+                addItemRow(i.productId || (i.name.includes('PVC')?1:2), false, {...raw, force: true});
+            });
+            closeModal(null, 'savedList');
+        }
 
-                // แสดงปุ่มลบกลับมา
-                document.querySelectorAll('.item-row button').forEach(btn => btn.style.display = 'block');
+                closeModal(null, 'savedList');
+                showToast('โหลดข้อมูลเรียบร้อยแล้ว');
+            } catch (e) {
+                console.error(e);
+                showToast('เกิดข้อผิดพลาดในการโหลด', true);
+            } finally {
+                showLoading(false);
+        async function delQuotation(id) {
+            if(confirm('ลบ?')) {
+                await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').doc(id).delete();
+                fetchSavedQuotations();
+            }
+        }
+
+        async function deleteQuotation(docId) {
+            if (!confirm('ต้องการลบข้อมูลนี้ใช่หรือไม่?')) return;
+            showLoading(true);
+            try {
+                await db.collection('artifacts').doc(appId)
+                        .collection('users').doc(currentUser.uid)
+                        .collection('quotations').doc(docId).delete();
+                fetchSavedQuotations(); // Reload list
+                showToast('ลบข้อมูลสำเร็จ');
+            } catch (e) {
+                showToast('ลบไม่สำเร็จ', true);
+            } finally {
+                showLoading(false);
+            }
+        function showToast(msg, err=false) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = msg;
+            t.classList.remove('translate-x-full', 'opacity-0', 'bg-gray-800', 'bg-red-600');
+            t.classList.add('translate-x-0', 'opacity-100', err ? 'bg-red-600' : 'bg-gray-800');
+            setTimeout(() => t.classList.add('translate-x-full', 'opacity-0'), 3000);
+        }
+
+        // --- Generate Output Logic ---
+        // --- Document Generation ---
+        function createQuotationHtml(data) {
+            const formattedDate = new Date(data.quotationDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+            
+            // Filter only valid items (must have price > 0)
+            const validItems = data.items.filter(i => i.qty > 0 && i.unitPrice > 0);
+            
+            let itemsHtml = '';
+            validItems.forEach((item, index) => {
+                itemsHtml += `
+                    <tr class="h-10 text-sm">
+                        <td class="border border-gray-300 px-3 text-center w-10">${index + 1}</td>
+                        <td class="border border-gray-300 px-3 font-semibold">${item.name} <span class="text-xs text-gray-500">(${item.code})</span></td>
+                        <td class="border border-gray-300 px-3">${item.description}</td>
+                        <td class="border border-gray-300 px-3 text-center w-20">${item.qty.toLocaleString()}</td>
+                        <td class="border border-gray-300 px-3 text-center w-20">ชุด</td>
+                        <td class="border border-gray-300 px-3 text-right w-24">${item.unitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${item.total.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                    </tr>
+                `;
+            });
+
+            const subtotalFormatted = data.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            let vat = 0;
+            let vatHtml = '';
+            if (data.vatOption === 'include') {
+                vat = data.subtotal * 0.07;
+                vatHtml = `<div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span><span class="text-sm">${vat.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>`;
+            }
+
+            const netTotal = data.subtotal + vat;
+            const items = data.items.filter(i => i.qty > 0 && i.unitPrice > 0);
+            const rows = items.map((i,x) => `<tr class="h-10 text-sm"><td class="border px-3 text-center">${x+1}</td><td class="border px-3 font-semibold">${i.name} <span class="text-xs text-gray-500">(${i.code})</span></td><td class="border px-3">${i.description}</td><td class="border px-3 text-center">${i.qty}</td><td class="border px-3 text-center">ชุด</td><td class="border px-3 text-right">${i.unitPrice.toLocaleString('th-TH',{minimumFractionDigits:2})}</td><td class="border px-3 text-right font-bold">${i.total.toLocaleString('th-TH',{minimumFractionDigits:2})}</td></tr>`).join('');
+            const vat = data.vatOption === 'include' ? data.subtotal * 0.07 : 0;
+            return `<div class="space-y-6 text-gray-800" style="font-family:'Sarabun'"><header class="text-center border-b-2 border-gray-800 pb-4"><h1 class="text-3xl font-bold">ใบเสนอราคา (QUOTATION)</h1><p class="text-xl">${data.sellerName}</p><p class="text-sm whitespace-pre-wrap">${data.sellerInfo}</p></header>
+                <div class="flex justify-between text-sm"><div class="w-1/2 border p-2 rounded"><p><strong>เรียน:</strong> ${data.customerName}</p><p>${data.customerAddress}</p></div><div class="w-1/3 pl-4"><p><strong>เลขที่:</strong> QUO-${new Date().toISOString().slice(0,10).replace(/-/g,'')}</p><p><strong>วันที่:</strong> ${new Date(data.quotationDate).toLocaleDateString('th-TH')}</p></div></div>
+                <table class="w-full border-collapse"><thead><tr class="bg-gray-100 text-sm font-bold h-12"><td class="border px-3">#</td><td class="border px-3">รายการ</td><td class="border px-3">รายละเอียด</td><td class="border px-3 text-center">จำนวน</td><td class="border px-3 text-center">หน่วย</td><td class="border px-3 text-right">ราคา/หน่วย</td><td class="border px-3 text-right">รวม</td></tr></thead><tbody>${rows}${'<tr><td class="border h-10"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td></tr>'.repeat(Math.max(0,5-items.length))}</tbody></table>
+                <div class="flex justify-between"><div class="w-3/5 pr-4 space-y-2"><div class="border p-3 rounded"><p class="font-bold text-indigo-700">เงื่อนไข</p><p class="text-sm">${data.paymentDetail}</p></div><div class="border p-3 rounded bg-gray-50"><p class="font-bold">ธนาคาร</p><p class="text-sm">${data.bankName} ${data.accountNumber} (${data.accountName})</p></div></div><div class="w-2/5 border"><div class="flex justify-between p-2 border-b"><span class="text-sm">รวม</span><span>${data.subtotal.toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div>${vat>0?`<div class="flex justify-between p-2 border-b"><span class="text-sm">VAT 7%</span><span>${vat.toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div>`:''}<div class="flex justify-between p-2 bg-gray-200"><span class="font-bold">สุทธิ</span><span class="font-bold text-red-600">${(data.subtotal+vat).toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div></div></div>
+                <div class="flex justify-between pt-10 text-sm"><div class="w-5/12 text-center border-t pt-2">ผู้เสนอราคา</div><div class="w-5/12 text-center border-t pt-2">ผู้อนุมัติ</div></div></div>`;
+        }
+
+            return `
+                <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
+                    <header class="text-center border-b-2 border-gray-800 pb-4">
+                        <h1 class="text-3xl font-bold mb-1">ใบเสนอราคา (QUOTATION)</h1>
+                        <p class="text-xl font-semibold">${data.sellerName}</p>
+                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo}</p>
+                    </header>
+                    <div class="flex justify-between text-sm">
+                        <div class="w-1/2 pr-4 border border-gray-300 p-2 rounded-lg">
+                            <p class="font-bold">เรียน: ${data.customerName}</p>
+                            <p>ที่อยู่: ${data.customerAddress}</p>
+                        </div>
+                        <div class="w-1/3 pl-4">
+                            <p><strong>เลขที่:</strong> QUO-${new Date().getFullYear()}${new Date().getMonth()+1}${new Date().getDate()}</p>
+                            <p><strong>วันที่:</strong> ${formattedDate}</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse">
+                            <thead><tr class="bg-gray-100 text-sm font-bold h-12"><td class="border border-gray-300 px-3 text-center">ลำดับ</td><td class="border border-gray-300 px-3">รายการ</td><td class="border border-gray-300 px-3">รายละเอียด</td><td class="border border-gray-300 px-3 text-center">จำนวน</td><td class="border border-gray-300 px-3 text-center">หน่วย</td><td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td><td class="border border-gray-300 px-3 text-right">ราคารวม</td></tr></thead>
+                            <tbody>${itemsHtml}${'<tr><td class="border border-gray-300 h-10"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - validItems.length))}</tbody>
+                        </table>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <div class="w-3/5 pr-4 space-y-3">
+                            <div class="border border-gray-400 p-3 rounded-lg"><p class="font-bold text-lg text-indigo-700 mb-2">การชำระเงิน</p><p class="text-sm">${data.paymentDetail}</p></div>
+                            <div class="border border-gray-400 p-3 rounded-lg bg-gray-50"><p class="font-bold">บัญชีธนาคาร:</p><p class="text-sm">${data.bankName} - ${data.accountNumber} (${data.accountName})</p></div>
+                        </div>
+                        <div class="w-2/5 border border-gray-800">
+                            <div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">รวมราคาสินค้า</span><span class="text-sm">${subtotalFormatted}</span></div>
+                            ${vatHtml}
+                            <div class="flex justify-between p-2 bg-gray-200"><span class="text-lg font-bold">รวมทั้งสิ้น</span><span class="text-lg font-bold text-red-600">${netTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between pt-10 text-sm">
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2"><p>ผู้เสนอราคา</p><p>(_________________________)</p></div>
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2"><p>ผู้อนุมัติ</p><p>(_________________________)</p></div>
+                    </div>
+                </div>
+            `;
+        function createReceiptHtml(data) {
+            const items = document.querySelectorAll('#receiptItemTableBody tr');
+            const rows = Array.from(items).map((r,i) => `<tr class="h-8 text-sm"><td class="border px-3 text-center">${i+1}</td><td class="border px-3">${r.querySelector('.item-description').value}</td><td class="border px-3 text-right">${r.querySelector('.item-quantity').value}</td><td class="border px-3 text-right">${parseFloat(r.querySelector('.item-price').value).toLocaleString('th-TH',{minimumFractionDigits:2})}</td><td class="border px-3 text-right font-bold">${r.querySelector('.item-total').textContent}</td></tr>`).join('');
+            const sub = Array.from(items).reduce((s,r) => s + parseFloat(r.querySelector('.item-total').textContent.replace(/,/g,'')), 0);
+            const isVat = document.querySelector('input[name="receiptVatOption"]:checked').value === 'include';
+            const vat = isVat ? sub * 0.07 : 0;
+            return `<div class="space-y-6 text-gray-800" style="font-family:'Sarabun'"><header class="text-center border-b-2 border-gray-800 pb-4"><h1 class="text-3xl font-bold">ใบเสร็จรับเงิน</h1><p class="text-xl">${data.sellerName}</p><p class="text-sm">${data.sellerInfo}</p><p class="text-sm">TAX: ${data.sellerTaxId}</p></header>
+                <div class="flex justify-between text-sm"><div class="w-1/2 border p-2 rounded"><p>ลูกค้า: ${data.rCustomerName}</p><p>${data.rCustomerAddress}</p><p>TAX: ${data.rCustomerTaxId}</p></div><div class="w-1/3 pl-4"><p>เลขที่: ${data.receiptNo}</p><p>วันที่: ${new Date(data.receiptDate).toLocaleDateString('th-TH')}</p><p>วิธีชำระ: ${data.paymentMethod}</p></div></div>
+                <table class="w-full border-collapse"><thead><tr class="bg-gray-100 text-sm font-bold h-10"><td class="border px-3">#</td><td class="border px-3">รายการ</td><td class="border px-3 text-right">จำนวน</td><td class="border px-3 text-right">ราคา</td><td class="border px-3 text-right">รวม</td></tr></thead><tbody>${rows}${'<tr><td class="border h-8"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td></tr>'.repeat(Math.max(0,5-items.length))}</tbody></table>
+                <div class="flex justify-end pt-4"><div class="w-2/5 border"><div class="flex justify-between p-2 border-b"><span>รวม</span><span>${sub.toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div>${isVat?`<div class="flex justify-between p-2 border-b"><span>VAT 7%</span><span>${vat.toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div>`:''}<div class="flex justify-between p-2 bg-gray-200"><span class="font-bold">สุทธิ</span><span class="font-bold text-blue-600">${(sub+vat).toLocaleString('th-TH',{minimumFractionDigits:2})}</span></div></div></div>
+                <div class="flex justify-between pt-10 text-sm"><div class="w-5/12 text-center border-t pt-2">ผู้รับเงิน</div><div class="w-5/12 text-center border-t pt-2">ผู้จ่ายเงิน</div></div></div>`;
+        }
+
+        // Functions for button clicks (Generate, Populate, etc)
+        function generateQuotation() {
+            const data = getQuotationFormData();
+            // Check for items with price > 0
+            if(data.items.filter(i => i.qty > 0 && i.unitPrice > 0).length === 0) { alert('กรุณากรอกรายการสินค้าและราคาให้ครบถ้วน'); return; }
+            if(data.items.filter(i=>i.qty>0&&i.unitPrice>0).length===0) { alert('กรอกข้อมูลสินค้าก่อนครับ'); return; }
+            document.getElementById('quotation-output').innerHTML = createQuotationHtml(data);
+            document.getElementById('quotationModal').style.display = 'flex';
+            document.getElementById('quotationCopyMessage').classList.add('hidden');
+        }
+
+        // --- Receipt Logic ---
+        function addItemRowReceipt(description = '', quantity = 1, price = 0) {
+            receiptItemCounter++;
+            const tbody = document.getElementById('receiptItemTableBody');
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="px-3 py-2 text-center text-gray-500">${receiptItemCounter}</td>
+                <td class="px-6 py-2"><input type="text" value="${description}" class="w-full item-description p-1 border rounded"></td>
+                <td class="px-6 py-2"><input type="number" value="${quantity}" min="1" class="w-full item-quantity p-1 border rounded text-right"></td>
+                <td class="px-6 py-2"><input type="number" value="${price}" min="0" step="0.01" class="w-full item-price p-1 border rounded text-right"></td>
+                <td class="px-6 py-2 text-right"><span class="item-total font-semibold text-gray-700">0.00</span></td>
+                <td class="px-1 py-2 text-center no-print"><button type="button" class="remove-item-btn text-red-500 p-1">ลบ</button></td>
+            `;
+            const update = () => calculateReceiptTotals();
+            row.querySelector('.item-quantity').addEventListener('input', update);
+            row.querySelector('.item-price').addEventListener('input', update);
+            row.querySelector('.remove-item-btn').addEventListener('click', () => { row.remove(); reindexReceiptRows(); update(); });
+            tbody.appendChild(row);
+            update();
+        }
+
+        function reindexReceiptRows() {
+            receiptItemCounter = 0;
+            document.querySelectorAll('#receiptItemTableBody tr').forEach((row, i) => {
+                receiptItemCounter = i + 1;
+                row.querySelector('td:first-child').textContent = receiptItemCounter;
             });
         }
-    </script>
 
+        function calculateReceiptTotals() {
+            let subtotal = 0;
+            const vatOption = document.querySelector('input[name="receiptVatOption"]:checked').value;
+            document.querySelectorAll('#receiptItemTableBody tr').forEach(row => {
+                const q = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const p = parseFloat(row.querySelector('.item-price').value) || 0;
+                const total = q * p;
+                row.querySelector('.item-total').textContent = total.toLocaleString('th-TH', {minimumFractionDigits: 2});
+                subtotal += total;
+            });
+            const vat = vatOption === 'include' ? subtotal * 0.07 : 0;
+            return { subtotal, vat, grandTotal: subtotal + vat, vatOption };
+        }
+
+        function populateReceiptFromQuotation() {
+            const qData = getQuotationFormData();
+            // Filter valid items for receipt as well
+            const validItems = qData.items.filter(i => i.qty > 0 && i.unitPrice > 0);
+            
+            if(validItems.length === 0) { alert('ไม่พบข้อมูลสินค้าที่มีราคาในใบเสนอราคา'); return; }
+            
+            const data = getQuotationFormData();
+            const valid = data.items.filter(i=>i.qty>0&&i.unitPrice>0);
+            if(!valid.length) { alert('ไม่พบข้อมูลจากใบเสนอราคา'); return; }
+            document.getElementById('receiptItemTableBody').innerHTML = '';
+            receiptItemCounter = 0;
+            validItems.forEach(item => addItemRowReceipt(item.description, 1, item.total));
+            
+            if (qData.vatOption) {
+                document.getElementsByName('receiptVatOption').forEach(r => r.checked = (r.value === qData.vatOption));
+            }
+            valid.forEach(i => addItemRowReceipt(i.description, 1, i.total));
+            if(data.vatOption) document.getElementsByName('receiptVatOption').forEach(r => r.checked = r.value===data.vatOption);
+            syncCustomerInfoToReceipt();
+            calculateReceiptTotals();
+            showToast('ดึงข้อมูลเรียบร้อย');
+        }
+
+        function createReceiptHtml(data) {
+            const totals = calculateReceiptTotals();
+            let rowsHtml = '';
+            document.querySelectorAll('#receiptItemTableBody tr').forEach((row, i) => {
+                const d = row.querySelector('.item-description').value;
+                const q = row.querySelector('.item-quantity').value;
+                const p = parseFloat(row.querySelector('.item-price').value).toLocaleString('th-TH', {minimumFractionDigits: 2});
+                const t = row.querySelector('.item-total').textContent;
+                rowsHtml += `<tr class="h-8 text-sm"><td class="border px-3 text-center">${i+1}</td><td class="border px-3">${d}</td><td class="border px-3 text-right">${q}</td><td class="border px-3 text-right">${p}</td><td class="border px-3 text-right font-bold">${t}</td></tr>`;
+            });
+
+            let vatRow = totals.vatOption === 'include' ? `<div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">VAT 7%</span><span class="text-sm">${totals.vat.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span></div>` : '';
+
+            return `
+                <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
+                    <header class="text-center border-b-2 border-gray-800 pb-4"><h1 class="text-3xl font-bold">ใบเสร็จรับเงิน</h1><p class="text-xl">${data.sellerName}</p><p class="text-sm">${data.sellerInfo}</p><p class="text-sm">TAX ID: ${data.sellerTaxId}</p></header>
+                    <div class="flex justify-between text-sm"><div class="w-1/2 border p-2 rounded"><p>ลูกค้า: ${data.rCustomerName}</p><p>ที่อยู่: ${data.rCustomerAddress}</p><p>TAX ID: ${data.rCustomerTaxId}</p></div><div class="w-1/3 pl-4"><p>เลขที่: ${data.receiptNo}</p><p>วันที่: ${new Date(data.receiptDate).toLocaleDateString('th-TH')}</p><p>ชำระโดย: ${data.paymentMethod}</p></div></div>
+                    <table class="w-full border-collapse"><thead><tr class="bg-gray-100 text-sm font-bold h-10"><td class="border px-3 text-center">#</td><td class="border px-3">รายการ</td><td class="border px-3 text-right">จำนวน</td><td class="border px-3 text-right">ราคา</td><td class="border px-3 text-right">รวม</td></tr></thead><tbody>${rowsHtml}${'<tr><td class="border h-8"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td></tr>'.repeat(Math.max(0, 5 - receiptItemCounter))}</tbody></table>
+                    <div class="flex justify-between pt-4"><div class="w-3/5 border p-2 rounded text-sm">** ได้รับเงินเรียบร้อยแล้ว **</div><div class="w-2/5 border border-gray-800"><div class="flex justify-between p-2 border-b"><span class="text-sm">รวมเงิน</span><span>${totals.subtotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span></div>${vatRow}<div class="flex justify-between p-2 bg-gray-200"><span class="text-lg font-bold">สุทธิ</span><span class="text-lg font-bold text-blue-600">${totals.grandTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span></div></div></div>
+                    <div class="flex justify-between pt-10 text-sm"><div class="w-5/12 text-center border-t pt-2">ผู้รับเงิน</div><div class="w-5/12 text-center border-t pt-2">ผู้จ่ายเงิน</div></div>
+                </div>
+            `;
+        }
+
+        function generateReceipt() {
+            const data = {
+                sellerName: document.getElementById('sellerName').value,
+                sellerInfo: document.getElementById('sellerInfo').value,
+                sellerTaxId: document.getElementById('sellerTaxId').value,
+                rCustomerName: document.getElementById('rCustomerName').value,
+                rCustomerAddress: document.getElementById('rCustomerAddress').value,
+                rCustomerTaxId: document.getElementById('rCustomerTaxId').value,
+                receiptNo: document.getElementById('receiptNo').value,
+                receiptDate: document.getElementById('receiptDate').value,
+                paymentMethod: document.getElementById('paymentMethod').value,
+            };
+            const data = { sellerName:document.getElementById('sellerName').value, sellerInfo:document.getElementById('sellerInfo').value, sellerTaxId:document.getElementById('sellerTaxId').value, rCustomerName:document.getElementById('rCustomerName').value, rCustomerAddress:document.getElementById('rCustomerAddress').value, rCustomerTaxId:document.getElementById('rCustomerTaxId').value, receiptNo:document.getElementById('receiptNo').value, receiptDate:document.getElementById('receiptDate').value, paymentMethod:document.getElementById('paymentMethod').value };
+            document.getElementById('receipt-output').innerHTML = createReceiptHtml(data);
+            document.getElementById('receiptModal').style.display = 'flex';
+        }
+        function addItemRowReceipt(desc='', qty=1, price=0) {
+            receiptItemCounter++;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td class="px-3 py-2 text-center text-gray-500">${receiptItemCounter}</td><td class="px-6 py-2"><input class="w-full item-description p-1 border rounded" value="${desc}"></td><td class="px-6 py-2"><input type="number" class="w-full item-quantity p-1 border rounded text-right" value="${qty}" oninput="calculateReceiptTotals()"></td><td class="px-6 py-2"><input type="number" class="w-full item-price p-1 border rounded text-right" value="${price}" oninput="calculateReceiptTotals()"></td><td class="px-6 py-2 text-right item-total font-semibold">0.00</td><td class="no-print px-1 text-center"><button class="text-red-500" onclick="this.closest('tr').remove();reindexReceiptRows();calculateReceiptTotals()">ลบ</button></td>`;
+            document.getElementById('receiptItemTableBody').appendChild(tr);
+            calculateReceiptTotals();
+        }
+        function reindexReceiptRows() { receiptItemCounter=0; document.querySelectorAll('#receiptItemTableBody tr td:first-child').forEach(td => td.textContent = ++receiptItemCounter); }
+
+        // --- Export Tools ---
+        function downloadPDF(type) {
+            const id = type === 'quotation' ? 'quotation-output' : 'receipt-output';
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'pt', 'a4');
+            html2canvas(document.getElementById(id), { scale: 2, scrollY: -window.scrollY }).then(canvas => {
+                const w = pdf.internal.pageSize.getWidth();
+                const h = (canvas.height * w) / canvas.width;
+                pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, w, h);
+                pdf.save(`${type}_${new Date().toISOString().slice(0,10)}.pdf`);
+            const id = type==='quotation'?'quotation-output':'receipt-output';
+            const pdf = new window.jspdf.jsPDF('p','pt','a4');
+            html2canvas(document.getElementById(id), {scale:2, scrollY:-window.scrollY}).then(c => {
+                pdf.addImage(c.toDataURL('image/jpeg'), 'JPEG', 0, 0, pdf.internal.pageSize.getWidth(), (c.height*pdf.internal.pageSize.getWidth())/c.width);
+                pdf.save(`${type}.pdf`);
+            });
+        }
+
+        function captureScreen(type) {
+            const id = type === 'quotation' ? 'quotation-output' : 'receipt-output';
+            html2canvas(document.getElementById(id), { scale: 2, scrollY: -window.scrollY }).then(c => {
+                c.toBlob(b => navigator.clipboard.write([new ClipboardItem({"image/png": b})]).then(() => {
+                    const msg = document.getElementById(type+'CopyMessage');
+                    msg.classList.remove('hidden'); setTimeout(()=>msg.classList.add('hidden'), 3000);
+                }));
+            });
+            html2canvas(document.getElementById(type==='quotation'?'quotation-output':'receipt-output'), {scale:2, scrollY:-window.scrollY}).then(c => c.toBlob(b => navigator.clipboard.write([new ClipboardItem({"image/png":b})]).then(()=> { document.getElementById(type+'CopyMessage').classList.remove('hidden'); setTimeout(()=>document.getElementById(type+'CopyMessage').classList.add('hidden'),3000); })));
+        }
+
+        // --- AI Logic ---
+        const apiKey = ""; 
+        // Initialize Rows
+        addItemRow(1, true);
+        addItemRow(2, true);
+        addItemRowReceipt('ค่าบริการ', 1, 0);
+
+        // API Key (For AI)
+        const apiKey = "";
+        async function generatePaymentDetails() {
+            const btn = document.getElementById('generatePaymentBtn');
+            const box = document.getElementById('paymentDetail');
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = '<span>กำลังคิด...</span>';
+            box.placeholder = 'AI กำลังทำงาน...';
+            
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `สร้างข้อความเงื่อนไขการชำระเงินสั้นๆ ทางการ สำหรับลูกค้า ${document.getElementById('customerName').value || 'ทั่วไป'} (มัดจำ 50%)` }] }]
+                    })
+                });
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if(text) box.value = text.trim();
+            } catch(e) { console.error(e); } 
+            finally { btn.disabled = false; btn.innerHTML = oldHtml; box.placeholder = 'เงื่อนไข...'; }
+           // ... (Same as before, skipped for brevity) ...
+        }
+    </script>
 </body>
-</html>
