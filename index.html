@@ -138,9 +138,28 @@
 
                 </div>
                 
-                <div class="mt-6 text-right p-4 rounded-lg bg-green-100">
-                    <p class="text-2xl font-bold text-gray-800">รวมราคาสินค้า: <span id="quotationSubtotalDisplay" class="text-red-600">0.00</span> บาท</p>
-                    <small class="text-gray-600">* ราคาเป็นเพียงการประมาณการณ์, ยังไม่รวมภาษีมูลค่าเพิ่ม (ถ้ามี)</small>
+                <!-- ส่วนสรุปราคาและตัวเลือก VAT (เพิ่มใหม่) -->
+                <div class="mt-6 p-4 rounded-lg bg-green-100">
+                    <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+                        <div class="bg-white p-3 rounded-lg border border-green-300 shadow-sm w-full md:w-auto">
+                            <span class="font-bold text-gray-700 block mb-2">ตัวเลือกภาษี (VAT 7%):</span>
+                            <div class="flex space-x-4">
+                                <label class="inline-flex items-center cursor-pointer">
+                                    <input type="radio" name="quotationVatOption" value="include" class="form-radio text-green-600 w-5 h-5" checked>
+                                    <span class="ml-2 text-gray-800">คิด VAT (+7%)</span>
+                                </label>
+                                <label class="inline-flex items-center cursor-pointer">
+                                    <input type="radio" name="quotationVatOption" value="none" class="form-radio text-green-600 w-5 h-5">
+                                    <span class="ml-2 text-gray-800">ไม่คิด VAT</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-gray-800">รวมราคาสินค้า: <span id="quotationSubtotalDisplay" class="text-red-600">0.00</span> บาท</p>
+                            <small class="text-gray-600">* ราคานี้เป็นราคาก่อนรวมภาษี (Subtotal)</small>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -155,7 +174,6 @@
                         <span>✨ แนะนำรายละเอียดการชำระเงิน</span>
                     </button>
                 </div>
-                <!-- End Gemini Feature Button -->
                 
                 <div class="space-y-3">
                     <textarea id="paymentDetail" rows="2" placeholder="รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150"></textarea>
@@ -177,7 +195,7 @@
         <!-- VIEW 2: RECEIPT FORM (ใบเสร็จรับเงิน) -->
         <!-- ========================================================================= -->
         <div id="receiptView" class="view-content hidden">
-             <!-- ข้อมูลลูกค้าและวันที่ (ใช้ input เดียวกับ Quotation) -->
+             <!-- ข้อมูลลูกค้าและวันที่ -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                 <div class="bg-gray-50 p-4 rounded-lg border">
                     <h3 class="font-semibold mb-2 text-blue-600">ข้อมูลลูกค้า</h3>
@@ -237,8 +255,25 @@
                 </table>
             </div>
             
+            <!-- ตัวเลือก VAT สำหรับใบเสร็จ (เพิ่มใหม่) -->
+            <div class="flex justify-end mb-4 no-print">
+                <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 shadow-sm">
+                    <span class="font-bold text-gray-700 block mb-2 text-sm">ตัวเลือกภาษี (VAT 7%):</span>
+                    <div class="flex space-x-4">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="receiptVatOption" value="include" class="form-radio text-blue-600 w-4 h-4" checked onchange="calculateReceiptTotals()">
+                            <span class="ml-2 text-gray-800 text-sm">คิด VAT (+7%)</span>
+                        </label>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="receiptVatOption" value="none" class="form-radio text-blue-600 w-4 h-4" onchange="calculateReceiptTotals()">
+                            <span class="ml-2 text-gray-800 text-sm">ไม่คิด VAT</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <!-- ปุ่มควบคุม Receipt -->
-            <div class="no-print mt-10 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+            <div class="no-print mt-6 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
                 <button onclick="addItemRowReceipt('', 1, 0)" class="px-6 py-3 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition duration-150">
                     + เพิ่มรายการสินค้า/บริการ (Manual)
                 </button>
@@ -507,6 +542,9 @@
          * ดึงข้อมูลทั้งหมดสำหรับสร้างใบเสนอราคา
          */
         function getQuotationFormData() {
+            // อ่านค่า Radio Button สำหรับ VAT
+            const vatOption = document.querySelector('input[name="quotationVatOption"]:checked').value;
+            
             const data = {
                 sellerName: document.getElementById('sellerName').value,
                 sellerInfo: document.getElementById('sellerInfo').value,
@@ -518,6 +556,7 @@
                 bankName: document.getElementById('bankName').value,
                 accountNumber: document.getElementById('accountNumber').value,
                 accountName: document.getElementById('accountName').value,
+                vatOption: vatOption, // ส่งค่าตัวเลือก VAT ไปด้วย
                 items: []
             };
 
@@ -576,11 +615,36 @@
                 `;
             });
 
+            // การคำนวณ VAT ตามตัวเลือกที่เลือก
             const subtotalFormatted = data.subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-            // Calculate VAT: Assume VAT is included in the total price, or add it. Here we add it for documentation consistency.
-            const vatRate = 0.07;
-            const vat = data.subtotal * vatRate; 
-            const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            let vat = 0;
+            let vatHtml = '';
+            
+            if (data.vatOption === 'include') {
+                // คิด VAT 7% (เพิ่มจากราคาขาย)
+                vat = data.subtotal * 0.07;
+                const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                vatHtml = `
+                    <div class="flex justify-between p-2 border-b border-gray-800">
+                        <span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span>
+                        <span class="text-sm">${vatFormatted}</span>
+                    </div>
+                `;
+            } else {
+                // ไม่คิด VAT (แสดงเป็น 0.00 หรือซ่อนแถวก็ได้ ในที่นี้เลือกแสดงเป็น 0.00 เพื่อความชัดเจน)
+                // หรือจะเลือกไม่แสดงบรรทัด VAT เลยก็ได้ 
+                /* // ถ้าอยากแสดง 0.00 ให้เปิด comment นี้
+                vatHtml = `
+                    <div class="flex justify-between p-2 border-b border-gray-800">
+                         <span class="text-sm">ภาษีมูลค่าเพิ่ม (ยกเว้น)</span>
+                         <span class="text-sm">0.00</span>
+                    </div>
+                `;
+                */
+               // ถ้าไม่คิด VAT ไม่ต้องแสดงบรรทัด VAT ให้เปลืองเนื้อที่
+               vatHtml = '';
+            }
+
             const netTotal = data.subtotal + vat;
             const netTotalFormatted = netTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -651,10 +715,10 @@
                                 <span class="text-sm">รวมราคาสินค้า</span>
                                 <span class="text-sm">${subtotalFormatted}</span>
                             </div>
-                            <div class="flex justify-between p-2 border-b border-gray-800">
-                                <span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span>
-                                <span class="text-sm">${vatFormatted}</span>
-                            </div>
+                            
+                            <!-- แทรกส่วนแสดงผล VAT ที่สร้างไว้ข้างบน -->
+                            ${vatHtml}
+
                             <div class="flex justify-between p-2 bg-gray-200">
                                 <span class="text-lg font-bold">รวมทั้งสิ้น</span>
                                 <span class="text-lg font-bold text-red-600">${netTotalFormatted} บาท</span>
@@ -780,8 +844,18 @@
                 addItemRowReceipt(item.description, 1, item.total);
             });
             
-            // 3. Update customer info (just in case they haven't switched view yet)
+            // 3. Sync VAT Option (ตั้งค่าใบเสร็จให้เหมือนใบเสนอราคา)
+            if (quotationData.vatOption) {
+                const radios = document.getElementsByName('receiptVatOption');
+                radios.forEach(r => {
+                    if (r.value === quotationData.vatOption) r.checked = true;
+                });
+            }
+
+            // 4. Update customer info (just in case they haven't switched view yet)
             syncCustomerInfoToReceipt();
+            
+            calculateReceiptTotals(); // Recalculate with new items and VAT setting
             
             alert(`ดึงรายการสินค้า ${quotationData.items.length} รายการจากใบเสนอราคามายังใบเสร็จเรียบร้อยแล้ว!`);
         }
@@ -801,13 +875,16 @@
         }
 
         /**
-         * คำนวณราคารวมทั้งหมดในใบเสร็จ
+         * คำนวณราคารวมทั้งหมดในใบเสร็จ (อัปเดตตามตัวเลือก VAT)
          */
         function calculateReceiptTotals() {
             const itemTableBody = document.getElementById('receiptItemTableBody');
             const rows = itemTableBody.querySelectorAll('tr');
             let subtotal = 0;
-            const VAT_RATE = 0.07;
+            
+            // อ่านค่า Radio Button VAT ของใบเสร็จ
+            const vatOption = document.querySelector('input[name="receiptVatOption"]:checked').value;
+            const VAT_RATE = vatOption === 'include' ? 0.07 : 0;
 
             rows.forEach(row => {
                 const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
@@ -821,7 +898,7 @@
             const vat = subtotal * VAT_RATE;
             const grandTotal = subtotal + vat;
 
-            return { subtotal, vat, grandTotal };
+            return { subtotal, vat, grandTotal, vatOption };
         }
 
         /**
@@ -829,12 +906,26 @@
          */
         function createReceiptHtml(data) {
             const totals = calculateReceiptTotals();
-            const { subtotal, vat, grandTotal } = totals;
+            const { subtotal, vat, grandTotal, vatOption } = totals;
 
             const subtotalFormatted = subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-            const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-            const grandTotalFormatted = grandTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            
+            // จัดการแสดงผล VAT ใน HTML
+            let vatRowHtml = '';
+            if (vatOption === 'include') {
+                 const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                 vatRowHtml = `
+                    <div class="flex justify-between p-2 border-b border-gray-800">
+                        <span class="text-sm">ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
+                        <span class="text-sm">${vatFormatted}</span>
+                    </div>
+                 `;
+            } else {
+                // ไม่แสดงบรรทัด VAT ถ้าเลือก "ไม่คิด VAT"
+                vatRowHtml = '';
+            }
 
+            const grandTotalFormatted = grandTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
             const formattedDate = new Date(data.receiptDate).toLocaleDateString('th-TH', { 
                 day: 'numeric', month: 'long', year: 'numeric' 
             });
@@ -920,10 +1011,10 @@
                                 <span class="text-sm">รวมเป็นเงิน</span>
                                 <span class="text-sm">${subtotalFormatted}</span>
                             </div>
-                            <div class="flex justify-between p-2 border-b border-gray-800">
-                                <span class="text-sm">ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-                                <span class="text-sm">${vatFormatted}</span>
-                            </div>
+                            
+                            <!-- VAT Row -->
+                            ${vatRowHtml}
+
                             <div class="flex justify-between p-2 bg-gray-200">
                                 <span class="text-lg font-bold">ยอดเงินสุทธิ</span>
                                 <span class="text-lg font-bold text-blue-600">${grandTotalFormatted} บาท</span>
