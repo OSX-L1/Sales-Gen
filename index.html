@@ -12,11 +12,6 @@
     <!-- โหลด Library สำหรับ PDF/Capture -->
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-    <!-- โหลด Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f3f4f6; }
@@ -37,7 +32,7 @@
         input[type="number"]::-webkit-inner-spin-button, 
         input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         
-        .active-tab { background-color: #4f46e5; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .active-tab { background-color: #4f46e5; color: white; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
         .inactive-tab { background-color: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
         .inactive-tab:hover { background-color: #e0e7ff; }
 
@@ -275,64 +270,20 @@
         </div>
     </div>
 
-    <script>
-        // --- 1. CONFIGURATION SECTION (ส่วนตั้งค่า) ---
-        // ใส่ Config ที่ได้จาก Firebase Console ตรงนี้
-        const firebaseConfig = {
-             // apiKey: "...",
-             // ...
-        };
-        const appId = 'my-shop-app'; // ตั้งชื่อแอป (ใช้เป็นชื่อ Folder ใน DB)
+    <script type="module">
+        // --- 1. FIREBASE MODULAR IMPORTS ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, deleteDoc, getDocs, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- 2. FIREBASE INITIALIZATION (ระบบเชื่อมต่อ) ---
+        // --- 2. CONFIGURATION & GLOBAL STATE ---
+        const apiKey = ""; // API Key for Gemini
+        const firebaseConfig = {}; // Placeholder for manual config
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-shop-app';
+        
         let auth, db, currentUser;
+        let isFirebaseReady = false; // Flag for authentication readiness
 
-        // ฟังก์ชันเชื่อมต่อแบบปลอดภัย (ป้องกันเว็บพังถ้า Config ผิด)
-        function initFirebase() {
-            try {
-                // เช็คว่ามีตัวแปรระบบ (Preview Mode) หรือไม่
-                let configToUse = firebaseConfig;
-                if (typeof __firebase_config !== 'undefined') {
-                    configToUse = JSON.parse(__firebase_config); // ใช้ Config ของระบบ Preview
-                }
-                
-                // เช็คว่า Config ว่างเปล่าหรือไม่
-                if (!configToUse || !configToUse.apiKey) {
-                    console.warn("ยังไม่ได้ใส่ Firebase Config (โหมด Offline)");
-                    return; // หยุดการเชื่อมต่อ แต่ปล่อยให้เว็บทำงานต่อ
-                }
-
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(configToUse);
-                }
-                auth = firebase.auth();
-                db = firebase.firestore();
-
-                auth.onAuthStateChanged(user => {
-                    if (user) {
-                        currentUser = user;
-                        console.log("Login as:", user.uid);
-                    } else {
-                        // Logic for Preview environment token
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            auth.signInWithCustomToken(__initial_auth_token);
-                        } else {
-                            auth.signInAnonymously().catch(e => console.error("Auth Fail:", e));
-                        }
-                    }
-                });
-
-            } catch (error) {
-                console.error("Firebase Init Error:", error);
-                // ไม่ throw error เพื่อให้ code ส่วนอื่นทำงานต่อได้
-            }
-        }
-
-        // เรียกใช้งานทันที
-        initFirebase();
-
-
-        // --- 3. APPLICATION LOGIC (การทำงานหลัก) ---
         const products = {
             1: { id: 1, name: 'ฉากกั้น PVC', option1: 'เปิดข้าง', option2: 'เปิดกลาง' },
             2: { id: 2, name: 'ม่านม้วน Blackout', option1: 'ปรับซ้าย', option2: 'ปรับขวา' }
@@ -340,6 +291,55 @@
         let nextRowId = 1;
         let receiptItemCounter = 0;
 
+
+        // --- 3. FIREBASE INITIALIZATION (ระบบเชื่อมต่อ) ---
+        async function initFirebase() {
+            let configToUse = firebaseConfig;
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    configToUse = JSON.parse(__firebase_config);
+                }
+
+                if (!configToUse || !configToUse.apiKey) {
+                    console.warn("ยังไม่ได้ใส่ Firebase Config (โหมด Offline)");
+                    return;
+                }
+
+                const app = initializeApp(configToUse);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUser = user;
+                        isFirebaseReady = true;
+                        console.log("Firebase Ready. User:", user.uid);
+                    } else {
+                        try {
+                            // Sign in using custom token from Canvas or anonymously
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                            currentUser = auth.currentUser;
+                            isFirebaseReady = true;
+                            console.log("Firebase Ready after sign-in. User:", currentUser.uid);
+                        } catch (e) {
+                            console.error("Auth Fail:", e);
+                            isFirebaseReady = true; // Still mark ready to prevent continuous attempts
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Init Error:", error);
+            }
+        }
+        initFirebase();
+
+
+        // --- 4. UTILITY FUNCTIONS ---
         function switchView(viewName) {
             document.getElementById('quotationView').classList.toggle('hidden', viewName !== 'quotation');
             document.getElementById('receiptView').classList.toggle('hidden', viewName !== 'receipt');
@@ -357,6 +357,37 @@
         function syncCustomerInfoToReceipt() {
             document.getElementById('rCustomerName').value = document.getElementById('customerName').value;
             document.getElementById('rCustomerAddress').value = document.getElementById('customerAddress').value;
+        }
+
+        function showToast(msg, err=false) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = msg;
+            t.classList.remove('translate-x-full', 'opacity-0', 'bg-gray-800', 'bg-red-600');
+            t.classList.add('translate-x-0', 'opacity-100', err ? 'bg-red-600' : 'bg-gray-800');
+            setTimeout(() => t.classList.add('translate-x-full', 'opacity-0'), 3000);
+        }
+
+        function fetchWithExponentialBackoff(url, options) {
+            const maxRetries = 5;
+            let delay = 1000;
+
+            async function attempt(retryCount) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (retryCount < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2;
+                        return attempt(retryCount + 1);
+                    }
+                    throw error;
+                }
+            }
+            return attempt(0);
         }
 
         // --- Row Management ---
@@ -398,6 +429,7 @@
             if (row) {
                 const pid = row.getAttribute('data-product-id');
                 row.remove();
+                // Ensure at least one blank row remains if possible
                 if (document.getElementById(`product-items-${pid}`).childElementCount === 0) addItemRow(parseInt(pid), true);
                 calculateQuotationTotal();
             }
@@ -412,8 +444,22 @@
             });
             document.getElementById('quotationSubtotalDisplay').textContent = subtotal.toLocaleString('th-TH', {minimumFractionDigits: 2});
         }
+        
+        function calculateReceiptTotals() {
+            let subtotal = 0;
+            document.querySelectorAll('#receiptItemTableBody tr').forEach(row => {
+                const q = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const p = parseFloat(row.querySelector('.item-price').value) || 0;
+                const total = q * p;
+                row.querySelector('.item-total').textContent = total.toLocaleString('th-TH', {minimumFractionDigits: 2});
+                subtotal += total;
+            });
+            // This app doesn't have a dedicated receipt total display outside the modal, so we just calculate.
+            // The total logic is in createReceiptHtml, but we need to ensure the calculation runs.
+            return subtotal;
+        }
 
-        // --- Data Handling ---
+        // --- 5. DATA HANDLING ---
         function getQuotationFormData() {
             const vatOption = document.querySelector('input[name="quotationVatOption"]:checked').value;
             const code1 = document.getElementById('product-code-1').value;
@@ -445,62 +491,98 @@
                 const opt = row.querySelector('[data-field="option"]').value;
                 const code = pid === 1 ? code1 : code2;
 
-                data.items.push({
-                    productId: pid,
-                    name: p.name,
-                    code: code,
-                    description: `${p.name} ${w>0&&h>0 ? `ขนาด: ${w}x${h} ซม.` : ''} (${opt})`,
-                    qty: q,
-                    unitPrice: pr,
-                    total: q * pr,
-                    raw: { width: row.querySelector('[data-field="width"]').value, height: row.querySelector('[data-field="height"]').value, option: opt, qty: q, price: pr }
-                });
+                if (q > 0 || pr > 0) { // Only save meaningful rows
+                    data.items.push({
+                        productId: pid,
+                        name: p.name,
+                        code: code,
+                        description: `${p.name} ${w>0&&h>0 ? `ขนาด: ${w}x${h} ซม.` : ''} (${opt})`,
+                        qty: q,
+                        unitPrice: pr,
+                        total: q * pr,
+                        raw: { width: row.querySelector('[data-field="width"]').value, height: row.querySelector('[data-field="height"]').value, option: opt, qty: q, price: pr }
+                    });
+                }
             });
             
             data.subtotal = data.items.reduce((s, i) => s + i.total, 0);
             return data;
         }
 
-        // --- Cloud Functions ---
+        // --- 6. CLOUD FUNCTIONS (Modular Syntax) ---
         async function saveQuotationToCloud() {
             if (!db) { showToast("ยังไม่ได้เชื่อมต่อ Firebase (Offline Mode)", true); return; }
-            if (!currentUser) { showToast("กำลังตรวจสอบสิทธิ์... กรุณาลองใหม่", true); return; }
+            if (!isFirebaseReady || !currentUser) { 
+                showToast("กำลังตรวจสอบสิทธิ์... กรุณารอสักครู่", true); 
+                return; 
+            }
+            
             const name = prompt("ตั้งชื่อบันทึก:", document.getElementById('customerName').value);
             if (!name) return;
 
             showLoading(true);
             try {
-                const data = { ...getQuotationFormData(), title: name, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
-                await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').add(data);
+                const data = { 
+                    ...getQuotationFormData(), 
+                    title: name, 
+                    createdAt: serverTimestamp(),
+                    userId: currentUser.uid 
+                };
+                
+                // Use modular addDoc and collection
+                const userQuotesCollection = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'quotations');
+                await addDoc(userQuotesCollection, data);
+                
                 showToast("บันทึกสำเร็จ");
-            } catch (e) { console.error(e); showToast("บันทึกไม่สำเร็จ", true); }
+            } catch (e) { 
+                console.error("Save Error:", e); 
+                showToast(`บันทึกไม่สำเร็จ: ${e.message}`, true); 
+            }
             finally { showLoading(false); }
         }
 
         async function fetchSavedQuotations() {
-            if (!db) { alert("Offline Mode: ไม่สามารถโหลดข้อมูลได้"); return; }
-            if (!currentUser) return;
+            if (!db) { showToast("Offline Mode: ไม่สามารถโหลดข้อมูลได้", true); return; }
+            if (!isFirebaseReady || !currentUser) return;
+            
             const container = document.getElementById('savedListContainer');
             container.innerHTML = '<p class="text-center">กำลังโหลด...</p>';
             
             try {
-                const snap = await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').get();
-                const docs = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+                // Use modular query and getDocs
+                const userQuotesCollection = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'quotations');
+                // IMPORTANT: Avoid using orderBy as it might require indexing. Fetch all and sort in memory.
+                const q = query(userQuotesCollection);
+                const snap = await getDocs(q);
+                
+                const docs = snap.docs.map(d => ({id: d.id, ...d.data()}))
+                    // Sort by timestamp in memory (most recent first)
+                    .sort((a, b) => (b.createdAt?.toDate().getTime() || 0) - (a.createdAt?.toDate().getTime() || 0));
                 
                 container.innerHTML = docs.length ? '' : '<p class="text-center">ไม่พบประวัติ</p>';
                 docs.forEach(doc => {
                     const div = document.createElement('div');
                     div.className = 'bg-white p-4 rounded border flex justify-between items-center';
-                    div.innerHTML = `<div><h4 class="font-bold">${doc.title}</h4><p class="text-xs text-gray-500">${new Date((doc.createdAt?.seconds||0)*1000).toLocaleDateString('th-TH')} | ${doc.subtotal.toLocaleString()} บ.</p></div>
+                    const date = doc.createdAt?.toDate() ? doc.createdAt.toDate().toLocaleDateString('th-TH') : 'N/A';
+                    div.innerHTML = `<div><h4 class="font-bold">${doc.title}</h4><p class="text-xs text-gray-500">${date} | ${doc.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.</p></div>
                         <div class="gap-2 flex"><button onclick='loadQuotation("${doc.id}")' class="bg-indigo-100 text-indigo-700 px-3 rounded text-sm">โหลด</button><button onclick='delQuotation("${doc.id}")' class="bg-red-100 text-red-700 px-3 rounded text-sm">ลบ</button></div>`;
                     div.dataset.json = JSON.stringify(doc);
                     container.appendChild(div);
                 });
-            } catch (e) { container.innerHTML = '<p class="text-center text-red-500">Error</p>'; }
+            } catch (e) { 
+                console.error("Fetch Error:", e);
+                container.innerHTML = '<p class="text-center text-red-500">เกิดข้อผิดพลาดในการโหลดข้อมูล</p>'; 
+            }
+        }
+        
+        function openSavedListModal() {
+            document.getElementById('savedListModal').style.display = 'flex';
+            fetchSavedQuotations();
         }
 
         function loadQuotation(id) {
-            const el = Array.from(document.getElementById('savedListContainer').children).find(e => e.querySelector(`button[onclick*="${id}"]`));
+            // Find the element data
+            const el = Array.from(document.getElementById('savedListContainer').children).find(e => e.dataset.json && JSON.parse(e.dataset.json).id === id);
             if(!el) return;
             const data = JSON.parse(el.dataset.json);
             if(!confirm(`โหลดข้อมูล "${data.title}"?`)) return;
@@ -510,33 +592,96 @@
             if(data.vatOption) document.getElementsByName('quotationVatOption').forEach(r => r.checked = r.value === data.vatOption);
             if(data.customCodes) { document.getElementById('product-code-1').value = data.customCodes[1]||''; document.getElementById('product-code-2').value = data.customCodes[2]||''; }
             
-            // Restore Items
+            // Clear current items
             document.getElementById('product-items-1').innerHTML = '';
             document.getElementById('product-items-2').innerHTML = '';
-            (data.items.length ? data.items : [{productId:1},{productId:2}]).forEach(i => {
-                // If loaded item, use raw values. If fallback empty item, use defaults.
+            
+            // Restore Items
+            const restoredItems = data.items.length ? data.items : [{productId:1},{productId:2}];
+            restoredItems.forEach(i => {
                 const raw = i.raw || { qty: i.qty, price: i.unitPrice };
-                addItemRow(i.productId || (i.name.includes('PVC')?1:2), false, {...raw, force: true});
+                // Use existing structure, but make sure to pass productId correctly
+                const pid = i.productId || (i.name.includes('PVC') ? 1 : 2);
+                addItemRow(pid, false, {...raw, force: true});
             });
+            
+            // If the restored list was empty, re-add one initial row per product type
+            if (!data.items.length) {
+                addItemRow(1, true);
+                addItemRow(2, true);
+            }
+
+            calculateQuotationTotal();
             closeModal(null, 'savedList');
         }
 
         async function delQuotation(id) {
-            if(confirm('ลบ?')) {
-                await db.collection('artifacts').doc(appId).collection('users').doc(currentUser.uid).collection('quotations').doc(id).delete();
-                fetchSavedQuotations();
+            if (!isFirebaseReady || !currentUser) return;
+            if(confirm('ยืนยันการลบข้อมูลนี้?')) {
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'quotations', id);
+                    await deleteDoc(docRef);
+                    showToast("ลบสำเร็จ");
+                    fetchSavedQuotations(); // Refresh list
+                } catch (e) {
+                    console.error("Delete Error:", e);
+                    showToast("ลบไม่สำเร็จ", true);
+                }
             }
         }
 
-        function showToast(msg, err=false) {
-            const t = document.getElementById('toast');
-            document.getElementById('toastMessage').textContent = msg;
-            t.classList.remove('translate-x-full', 'opacity-0', 'bg-gray-800', 'bg-red-600');
-            t.classList.add('translate-x-0', 'opacity-100', err ? 'bg-red-600' : 'bg-gray-800');
-            setTimeout(() => t.classList.add('translate-x-full', 'opacity-0'), 3000);
+        // --- 7. AI ASSISTANCE (Gemini) ---
+        async function generatePaymentDetails() {
+            const paymentDetailEl = document.getElementById('paymentDetail');
+            const btn = document.getElementById('generatePaymentBtn');
+            const originalHtml = btn.innerHTML;
+            
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>กำลังคิด...';
+            paymentDetailEl.placeholder = 'กำลังสร้างรายละเอียดการชำระเงิน...';
+
+            // Get total price to prompt the model
+            const subtotal = document.getElementById('quotationSubtotalDisplay').textContent.replace(/,/g, '');
+
+            const systemPrompt = "คุณคือผู้ช่วยสร้างเงื่อนไขการชำระเงินสำหรับใบเสนอราคาในประเทศไทย จงสรุปเงื่อนไขการชำระเงินที่เหมาะสมและเป็นมาตรฐานในรูปแบบข้อความสั้นๆ ไม่เกิน 3 บรรทัด เช่น 'มัดจำ 50% ก่อนเริ่มงาน ส่วนที่เหลือ 50% ชำระหลังติดตั้งเสร็จสมบูรณ์'";
+            const userPrompt = `ยอดรวมสินค้าที่เสนอราคาคือ ${subtotal} บาท กรุณาแนะนำเงื่อนไขการชำระเงินที่เป็นมาตรฐานและรัดกุม`;
+
+            try {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                const response = await fetchWithExponentialBackoff(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (generatedText) {
+                    paymentDetailEl.value = generatedText.trim();
+                } else {
+                    console.error('Gemini API returned no text.', result);
+                    showToast('ไม่สามารถสร้างรายละเอียดได้ กรุณาลองใหม่', true);
+                }
+
+            } catch (error) {
+                console.error('Error generating payment details:', error);
+                showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ API', true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                paymentDetailEl.placeholder = 'รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)';
+            }
         }
 
-        // --- Document Generation ---
+
+        // --- 8. DOCUMENT GENERATION (Unchanged from previous file) ---
         function createQuotationHtml(data) {
             const items = data.items.filter(i => i.qty > 0 && i.unitPrice > 0);
             const rows = items.map((i,x) => `<tr class="h-10 text-sm"><td class="border px-3 text-center">${x+1}</td><td class="border px-3 font-semibold">${i.name} <span class="text-xs text-gray-500">(${i.code})</span></td><td class="border px-3">${i.description}</td><td class="border px-3 text-center">${i.qty}</td><td class="border px-3 text-center">ชุด</td><td class="border px-3 text-right">${i.unitPrice.toLocaleString('th-TH',{minimumFractionDigits:2})}</td><td class="border px-3 text-right font-bold">${i.total.toLocaleString('th-TH',{minimumFractionDigits:2})}</td></tr>`).join('');
@@ -564,23 +709,24 @@
         // Functions for button clicks (Generate, Populate, etc)
         function generateQuotation() {
             const data = getQuotationFormData();
-            if(data.items.filter(i=>i.qty>0&&i.unitPrice>0).length===0) { alert('กรอกข้อมูลสินค้าก่อนครับ'); return; }
+            if(data.items.filter(i=>i.qty>0&&i.unitPrice>0).length===0) { showToast('กรุณากรอกข้อมูลสินค้าที่มีราคาก่อนครับ', true); return; }
             document.getElementById('quotation-output').innerHTML = createQuotationHtml(data);
             document.getElementById('quotationModal').style.display = 'flex';
         }
         function populateReceiptFromQuotation() {
             const data = getQuotationFormData();
             const valid = data.items.filter(i=>i.qty>0&&i.unitPrice>0);
-            if(!valid.length) { alert('ไม่พบข้อมูลจากใบเสนอราคา'); return; }
+            if(!valid.length) { showToast('ไม่พบรายการสินค้าที่สมบูรณ์จากใบเสนอราคา', true); return; }
             document.getElementById('receiptItemTableBody').innerHTML = '';
             receiptItemCounter = 0;
-            valid.forEach(i => addItemRowReceipt(i.description, 1, i.total));
+            valid.forEach(i => addItemRowReceipt(i.description, i.qty, i.unitPrice));
             if(data.vatOption) document.getElementsByName('receiptVatOption').forEach(r => r.checked = r.value===data.vatOption);
             syncCustomerInfoToReceipt();
             calculateReceiptTotals();
         }
         function generateReceipt() {
             const data = { sellerName:document.getElementById('sellerName').value, sellerInfo:document.getElementById('sellerInfo').value, sellerTaxId:document.getElementById('sellerTaxId').value, rCustomerName:document.getElementById('rCustomerName').value, rCustomerAddress:document.getElementById('rCustomerAddress').value, rCustomerTaxId:document.getElementById('rCustomerTaxId').value, receiptNo:document.getElementById('receiptNo').value, receiptDate:document.getElementById('receiptDate').value, paymentMethod:document.getElementById('paymentMethod').value };
+            if(document.querySelectorAll('#receiptItemTableBody tr').length === 0) { showToast('กรุณาเพิ่มรายการสินค้าในใบเสร็จก่อน', true); return; }
             document.getElementById('receipt-output').innerHTML = createReceiptHtml(data);
             document.getElementById('receiptModal').style.display = 'flex';
         }
@@ -605,16 +751,16 @@
             html2canvas(document.getElementById(type==='quotation'?'quotation-output':'receipt-output'), {scale:2, scrollY:-window.scrollY}).then(c => c.toBlob(b => navigator.clipboard.write([new ClipboardItem({"image/png":b})]).then(()=> { document.getElementById(type+'CopyMessage').classList.remove('hidden'); setTimeout(()=>document.getElementById(type+'CopyMessage').classList.add('hidden'),3000); })));
         }
 
+        // --- 9. INITIALIZATION ---
         // Initialize Rows
         addItemRow(1, true);
         addItemRow(2, true);
         addItemRowReceipt('ค่าบริการ', 1, 0);
 
-        // API Key (For AI)
-        const apiKey = "";
-        async function generatePaymentDetails() {
-           // ... (Same as before, skipped for brevity) ...
-        }
+        // Set today's date
+        document.getElementById('quotationDate').valueAsDate = new Date();
+        document.getElementById('receiptDate').valueAsDate = new Date();
+
     </script>
 </body>
 </html>
