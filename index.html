@@ -20,14 +20,36 @@
     
     <style>
         body { font-family: 'Sarabun', sans-serif; }
-        /* กำหนดสไตล์สำหรับเอกสารที่จะพิมพ์ */
+        
+        /* กำหนดสไตล์สำหรับเอกสาร Desktop/A4 (Default) */
         .document-container {
             width: 21cm; /* A4 width */
             min-height: 29.7cm; /* A4 height */
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             background: white;
             margin: 20px auto;
+            transition: all 0.3s ease-in-out; /* เพิ่มความนุ่มนวลในการเปลี่ยนโหมด */
         }
+
+        /* Mobile View Mode Styles (เมื่อคลาสนี้ถูกเพิ่มโดย JS) */
+        .document-container.mobile-mode-active {
+            width: 100% !important; /* Override fixed width */
+            min-height: auto !important; /* No fixed height */
+            box-shadow: none !important; /* Remove shadow */
+            margin: 0 !important; /* Remove center margin */
+            padding: 1rem !important; /* Smaller padding for mobile */
+        }
+        
+        /* ปรับ padding ของ Main container เมื่ออยู่ในโหมด Mobile เพื่อให้เอกสารเต็มจอ */
+        main.mobile-mode-active-padding {
+            padding: 0 !important; /* Remove main padding for full screen mobile */
+        }
+        
+        /* Adjust padding inside the document container when in mobile mode */
+        .document-container.mobile-mode-active > div:first-child {
+            padding: 1rem !important;
+        }
+
         /* ซ่อนรายการเอกสารเมื่อพิมพ์ */
         @media print {
             .sidebar-controls, .controls-container, .document-footer, .action-buttons {
@@ -79,6 +101,12 @@
 
         <!-- ปุ่มควบคุมหลัก -->
         <div class="controls-container mt-4 pt-4 border-t border-gray-200 space-y-3">
+            <!-- ปุ่มสลับมุมมอง (Desktop/Mobile) -->
+            <button id="toggleViewModeBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md flex items-center justify-center">
+                <span id="viewModeIcon">💻</span>
+                <span class="ml-2" id="viewModeText">โหมดเดสก์ท็อป (A4)</span>
+            </button>
+            
             <button id="newDocumentBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
                 <i class="fas fa-plus mr-2"></i> สร้างเอกสารใหม่
             </button>
@@ -99,7 +127,7 @@
     </div>
 
     <!-- พื้นที่ทำงานหลักและเอกสาร -->
-    <main class="flex-grow p-4 lg:p-8 overflow-y-auto">
+    <main id="mainContainer" class="flex-grow p-4 lg:p-8 overflow-y-auto">
         
         <!-- Document Container (A4 Mockup) -->
         <div id="documentToCapture" class="document-container p-6 md:p-10 lg:p-12 shadow-xl">
@@ -267,7 +295,8 @@
         let userId = null;
         let currentDocumentId = null;
         let currentDocumentData = {};
-        
+        let isMobileMode = false; // สถานะการทำงานของโหมด Mobile
+
         const CATEGORIES = [
             { value: 'ฉาก PVC', label: 'ฉาก PVC' },
             { value: 'ม่านม้วน', label: 'ม่านม้วน' },
@@ -293,6 +322,14 @@
             taxAmount: document.getElementById('taxAmount'),
             grandTotal: document.getElementById('grandTotal'),
         };
+        
+        // Element สำหรับการควบคุมโหมด
+        const mainContainer = document.getElementById('mainContainer');
+        const documentToCapture = document.getElementById('documentToCapture');
+        const toggleViewModeBtn = document.getElementById('toggleViewModeBtn');
+        const viewModeIcon = document.getElementById('viewModeIcon');
+        const viewModeText = document.getElementById('viewModeText');
+
 
         // --- Utility Functions ---
 
@@ -500,6 +537,29 @@
             document.getElementById('saveDocumentBtn').textContent = 'บันทึกเอกสาร';
             showMessage('สร้างเอกสารใหม่เรียบร้อยแล้ว');
         }
+        
+        // --- View Mode Toggle ---
+        function toggleViewMode() {
+            isMobileMode = !isMobileMode;
+
+            if (isMobileMode) {
+                // Switch to Mobile Mode (Full Screen)
+                documentToCapture.classList.add('mobile-mode-active');
+                mainContainer.classList.add('mobile-mode-active-padding');
+                viewModeIcon.textContent = '📱';
+                viewModeText.textContent = 'โหมดมือถือ (เต็มจอ)';
+                showMessage('ปรับเป็นโหมดมือถือแล้ว (เต็มจอ)');
+
+            } else {
+                // Switch back to Desktop Mode (A4 Mockup)
+                documentToCapture.classList.remove('mobile-mode-active');
+                mainContainer.classList.remove('mobile-mode-active-padding');
+                viewModeIcon.textContent = '💻';
+                viewModeText.textContent = 'โหมดเดสก์ท็อป (A4)';
+                showMessage('ปรับเป็นโหมดเดสก์ท็อปแล้ว (A4)');
+            }
+        }
+
 
         // --- Firestore Setup and Data Handling ---
 
@@ -1079,6 +1139,9 @@
             // 6. AI Button listener (for payment details generation)
             const generateAIBtn = document.getElementById('generatePaymentBtn');
             if (generateAIBtn) generateAIBtn.addEventListener('click', generatePaymentDetails);
+            
+            // 7. View Mode Toggle Listener (New Feature)
+            if (toggleViewModeBtn) toggleViewModeBtn.addEventListener('click', toggleViewMode);
         });
     </script>
 </body>
