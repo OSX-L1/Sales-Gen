@@ -1,0 +1,10 @@
+[build]
+
+ไม่จำเป็นต้องมี build command สำหรับ static HTML
+
+publish = "/"
+
+กำหนดให้ใช้ Node.js 18 เพื่อความเข้ากันได้ของฟังก์ชันต่างๆ (เผื่อมีการเพิ่มฟังก์ชัน JavaScript ที่ซับซ้อนในอนาคต)
+
+[build.environment]
+NODE_VERSION = "18"
