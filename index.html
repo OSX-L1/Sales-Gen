@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เครื่องมือจัดการเอกสารขาย (ใบเสนอราคา & ใบเสร็จ)</title>
+    <!-- โหลด Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- โหลด Google Font Sarabun TH สำหรับการแสดงผลภาษาไทย -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    <!-- โหลด Library สำหรับการสร้าง PDF และ Capture หน้าจอ -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <style>
+        /* กำหนด Font Sarabun TH เป็น Font หลัก */
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Style สำหรับเอกสาร (ใช้สำหรับ export) */
+        #quotation-output, #receipt-output {
+            background-color: white;
+            padding: 2.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            min-height: 1123px; /* A4 height */
+            width: 794px; /* A4 width */
+            margin: auto;
+        }
+        
+        /* สไตล์สำหรับซ่อนเมื่อสั่งพิมพ์ */
+        @media print {
+            .modal-hidden-on-print, .no-print {
+                display: none !important;
+            }
+            /* ปรับขนาดตัวอักษรสำหรับพิมพ์ใบเสร็จ */
+            #receipt-view .item-description { border: none !important; padding: 0 !important; }
+            #receipt-view .item-quantity { border: none !important; padding: 0 !important; }
+            #receipt-view .item-price { border: none !important; padding: 0 !important; }
+            .page-container { box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
+        }
+
+        /* Custom styles for number inputs */
+        input[type="number"]::-webkit-inner-spin-button, 
+        input[type="number"]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        
+        /* Tab Styles */
+        .active-tab {
+            background-color: #4f46e5;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .inactive-tab {
+            background-color: #eef2ff;
+            color: #4f46e5;
+            border: 1px solid #c7d2fe;
+        }
+        .inactive-tab:hover {
+            background-color: #e0e7ff;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white p-6 md:p-10 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">ระบบจัดการเอกสารการขาย</h1>
+        
+        <!-- Navigation/Toggle Bar -->
+        <div class="no-print flex justify-center space-x-4 mb-8 border-b-2 pb-4">
+            <button onclick="switchView('quotation')" id="btnQuotation" class="px-6 py-2 rounded-lg font-bold transition duration-150 active-tab">
+                สร้างใบเสนอราคา
+            </button>
+            <button onclick="switchView('receipt')" id="btnReceipt" class="px-6 py-2 rounded-lg font-bold transition duration-150 inactive-tab">
+                สร้างใบเสร็จรับเงิน
+            </button>
+        </div>
+
+        <!-- 0. ข้อมูลผู้ขาย (เพิ่มใหม่ตามที่ร้องขอ) -->
+        <section class="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50 no-print">
+            <h2 class="text-xl font-semibold text-blue-700 mb-3">0. ข้อมูลผู้ขาย (บริษัทของคุณ)</h2>
+            <input id="sellerName" type="text" placeholder="ชื่อบริษัท (ผู้ขาย)" value="บริษัท ตัวอย่าง จำกัด" class="w-full p-3 mb-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+            <textarea id="sellerInfo" rows="2" placeholder="ที่อยู่, เลขผู้เสียภาษี, โทรศัพท์ ฯลฯ" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">99/9 หมู่ 9 ถนนตัวอย่าง ตำบลตัวอย่าง อำเภอตัวอย่าง จังหวัดตัวอย่าง 10000</textarea>
+            <input type="text" id="sellerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ใช้ในใบเสร็จ)" value="1234567890123" class="w-full mt-2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+        </section>
+
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 1: QUOTATION FORM (ใบเสนอราคา) -->
+        <!-- ========================================================================= -->
+        <div id="quotationView" class="view-content">
+            
+            <!-- ส่วนที่ 1: ข้อมูลผู้รับ -->
+            <section class="mb-8 p-4 border border-indigo-200 rounded-lg bg-indigo-50">
+                <h2 class="text-xl font-semibold text-indigo-700 mb-4">1. รายละเอียดลูกค้า</h2>
+                <div class="space-y-4">
+                    <input id="customerName" type="text" placeholder="ชื่อลูกค้า / บริษัท" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    <textarea id="customerAddress" rows="3" placeholder="ที่อยู่" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150"></textarea>
+                    <input id="quotationDate" type="date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition duration-150" required>
+                </div>
+            </section>
+
+            <!-- ส่วนที่ 2: รายการสินค้า -->
+            <section class="mb-8 p-4 border border-green-200 rounded-lg bg-green-50">
+                <h2 class="text-xl font-semibold text-green-700 mb-4">2. รายการสินค้าและราคา</h2>
+                
+                <div id="productContainer" class="space-y-8">
+                    
+                    <!-- สินค้า 1: ฉากกั้น PVC -->
+                    <div id="product-1" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
+                        <h3 class="font-bold text-xl text-green-600 mb-1">ฉากกั้น PVC (รหัส SN390-10)</h3>
+                        <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, เปิดข้าง/เปิดกลาง</p>
+                        
+                        <div id="product-items-1" class="space-y-4 mb-4">
+                            <!-- รายการสินค้าจะถูกเพิ่มที่นี่โดย JavaScript -->
+                        </div>
+
+                        <button type="button" onclick="addItemRow(1)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 transition duration-150 border-dashed border-2 border-green-300">
+                            + เพิ่มรายการฉากกั้น PVC
+                        </button>
+                    </div>
+
+                    <!-- สินค้า 2: ม่านม้วน Blackout -->
+                    <div id="product-2" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
+                        <h3 class="font-bold text-xl text-green-600 mb-1">ม่านม้วน Blackout (รหัส RBP-3901)</h3>
+                        <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, ปรับซ้าย/ปรับขวา</p>
+                        
+                        <div id="product-items-2" class="space-y-4 mb-4">
+                            <!-- รายการสินค้าจะถูกเพิ่มที่นี่โดย JavaScript -->
+                        </div>
+
+                        <button type="button" onclick="addItemRow(2)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 transition duration-150 border-dashed border-2 border-green-300">
+                            + เพิ่มรายการม่านม้วน Blackout
+                        </button>
+                    </div>
+
+                </div>
+                
+                <div class="mt-6 text-right p-4 rounded-lg bg-green-100">
+                    <p class="text-2xl font-bold text-gray-800">รวมราคาสินค้า: <span id="quotationSubtotalDisplay" class="text-red-600">0.00</span> บาท</p>
+                    <small class="text-gray-600">* ราคาเป็นเพียงการประมาณการณ์, ยังไม่รวมภาษีมูลค่าเพิ่ม (ถ้ามี)</small>
+                </div>
+            </section>
+
+            <!-- ส่วนที่ 3: รายละเอียดการชำระเงิน -->
+            <section class="mb-8 p-4 border border-yellow-200 rounded-lg bg-yellow-50">
+                <h2 class="text-xl font-semibold text-yellow-700 mb-4">3. รายละเอียดการชำระเงิน</h2>
+                
+                <!-- Gemini Feature Button -->
+                <div class="flex justify-end mb-3">
+                    <button id="generatePaymentBtn" onclick="generatePaymentDetails()" class="flex items-center space-x-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 transform hover:scale-[1.02] shadow-md">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.32 14.28a1 1 0 01-1.41 1.41A6 6 0 1113 7.64a1 1 0 011.85-.75l.17.42A8 8 0 1010 18a8 8 0 000-16zm.18-1.42a1 1 0 00-.81.25l-.23.23a1 1 0 00.7.35l.11-.01.1-.03a1 1 0 00.7-.35zM9 10a1 1 0 100-2 1 1 0 000 2z"/></svg>
+                        <span>✨ แนะนำรายละเอียดการชำระเงิน</span>
+                    </button>
+                </div>
+                <!-- End Gemini Feature Button -->
+                
+                <div class="space-y-3">
+                    <textarea id="paymentDetail" rows="2" placeholder="รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150"></textarea>
+                    <input id="bankName" type="text" placeholder="ชื่อธนาคาร" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                    <input id="accountNumber" type="text" placeholder="เลขที่บัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                    <input id="accountName" type="text" placeholder="ชื่อบัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
+                </div>
+            </section>
+
+            <!-- ปุ่มสร้างใบเสนอราคา -->
+            <div class="flex justify-center">
+                <button onclick="generateQuotation()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl transition duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-100">
+                    สร้างใบเสนอราคา
+                </button>
+            </div>
+        </div>
+
+        <!-- ========================================================================= -->
+        <!-- VIEW 2: RECEIPT FORM (ใบเสร็จรับเงิน) -->
+        <!-- ========================================================================= -->
+        <div id="receiptView" class="view-content hidden">
+             <!-- ข้อมูลลูกค้าและวันที่ (ใช้ input เดียวกับ Quotation) -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div class="bg-gray-50 p-4 rounded-lg border">
+                    <h3 class="font-semibold mb-2 text-blue-600">ข้อมูลลูกค้า</h3>
+                    <input type="text" id="rCustomerName" placeholder="ชื่อลูกค้า/หน่วยงาน" value="ชื่อลูกค้า/หน่วยงาน" class="w-full mb-2 p-2 border rounded-lg transition duration-150">
+                    <textarea id="rCustomerAddress" placeholder="ที่อยู่ลูกค้า" class="w-full p-2 border rounded-lg resize-none h-12 transition duration-150">ที่อยู่ลูกค้า (ระบุเองได้)</textarea>
+                    <input type="text" id="rCustomerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ถ้ามี)" class="w-full mt-2 p-2 border rounded-lg transition duration-150">
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg border flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-semibold mb-2 text-blue-600">รายละเอียดใบเสร็จ</h3>
+                        <div class="flex justify-between mb-2">
+                            <label for="receiptNo" class="font-medium text-gray-700 w-1/3">เลขที่:</label>
+                            <input type="text" id="receiptNo" placeholder="REC-YYYYMM-001" value="REC-202410-001" class="w-2/3 p-2 border rounded-lg text-right transition duration-150">
+                        </div>
+                        <div class="flex justify-between mb-2">
+                            <label for="receiptDate" class="font-medium text-gray-700 w-1/3">วันที่:</label>
+                            <input type="date" id="receiptDate" class="w-2/3 p-2 border rounded-lg text-right transition duration-150">
+                        </div>
+                        <div class="flex justify-between">
+                            <label for="paymentMethod" class="font-medium text-gray-700 w-1/3">วิธีการชำระ:</label>
+                            <select id="paymentMethod" class="w-2/3 p-2 border rounded-lg bg-white text-right transition duration-150">
+                                <option value="เงินสด">เงินสด</option>
+                                <option value="โอนเงิน">โอนเงิน</option>
+                                <option value="บัตรเครดิต">บัตรเครดิต</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ปุ่มดึงข้อมูลจากใบเสนอราคา -->
+            <div class="no-print flex justify-end mb-4">
+                <button onclick="populateReceiptFromQuotation()" class="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 transform hover:scale-[1.02] shadow-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+                      <path fill-rule="evenodd" d="M15.312 11.424a1.05 1.05 0 01-.06 1.06l-1.636 1.73a.87.87 0 00-.21 1.077c.433.864.137 2.01-.727 2.443L9.61 18.995c-1.488.744-3.328-.31-3.665-1.928l-.055-.251c-.125-.63.26-1.25.89-1.375l2.497-.499a.87.87 0 00.707-.29l1.96-2.185a1.5 1.5 0 000-2.072l-1.96-2.185a.87.87 0 00-.707-.29l-2.497-.499c-.63-.125-1.015-.745-.89-1.375l.056-.251c.337-1.618 2.177-2.672 3.665-1.928l4.08 2.04c.864.433 1.16 1.579.727 2.443a.87.87 0 00-.21 1.077l1.636 1.73a1.05 1.05 0 01-.06 1.06z" clip-rule="evenodd" />
+                    </svg>
+                    <span>ดึงรายการจากใบเสนอราคา</span>
+                </button>
+            </div>
+            
+            <!-- ตารางรายการสินค้า/บริการ -->
+            <div class="overflow-x-auto mb-6">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-blue-50">
+                        <tr>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-1/12">#</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-5/12">รายการ</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">จำนวน</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">ราคา/หน่วย</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">รวม (บาท)</th>
+                            <th class="px-1 py-3 w-1/12 no-print"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="receiptItemTableBody" class="bg-white divide-y divide-gray-100 text-sm">
+                        <!-- รายการสินค้าจะถูกเพิ่มด้วย JavaScript ที่นี่ -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- ปุ่มควบคุม Receipt -->
+            <div class="no-print mt-10 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <button onclick="addItemRowReceipt('', 1, 0)" class="px-6 py-3 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition duration-150">
+                    + เพิ่มรายการสินค้า/บริการ (Manual)
+                </button>
+                <button onclick="generateReceipt()" class="px-8 py-3 bg-blue-600 text-white text-lg font-bold rounded-lg shadow-xl hover:bg-blue-700 transition duration-150">
+                    สร้างและพิมพ์ใบเสร็จรับเงิน
+                </button>
+            </div>
+        </div>
+        
+
+    </div>
+
+    <!-- Modal/Popup สำหรับ Preview ใบเสนอราคา -->
+    <div id="quotationModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'quotation')">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+            
+            <!-- Modal Header และปุ่มควบคุม -->
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 md:p-6 border-b border-gray-200 bg-indigo-50 rounded-t-xl">
+                <h3 class="text-2xl font-bold text-indigo-800">พรีวิวใบเสนอราคา</h3>
+                <button onclick="closeModal(null, 'quotation')" class="text-gray-600 hover:text-red-500 transition duration-150 text-3xl leading-none font-sans">&times;</button>
+            </div>
+            
+            <!-- Modal Body: แสดงใบเสนอราคา -->
+            <div id="quotationPreview" class="p-2 overflow-y-auto max-h-[85vh]">
+                <div id="quotation-output">
+                    <!-- เนื้อหาใบเสนอราคาจะถูกสร้างขึ้นที่นี่ -->
+                </div>
+            </div>
+
+            <!-- Modal Footer: ปุ่มดาวน์โหลด/แคปหน้าจอ -->
+            <div class="modal-hidden-on-print p-4 md:p-6 border-t border-gray-200 flex flex-wrap justify-center gap-4 bg-indigo-50 rounded-b-xl">
+                <button onclick="downloadPDF('quotation')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
+                    ⬇️ ดาวน์โหลดเป็น PDF
+                </button>
+                <button onclick="captureScreen('quotation')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
+                    📷 แคปหน้าจอ (Copy Image)
+                </button>
+                <div id="quotationCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกรูปภาพแล้ว!</div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Modal/Popup สำหรับ Preview ใบเสร็จรับเงิน -->
+    <div id="receiptModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'receipt')">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+            
+            <!-- Modal Header และปุ่มควบคุม -->
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 md:p-6 border-b border-gray-200 bg-blue-50 rounded-t-xl">
+                <h3 class="text-2xl font-bold text-blue-800">พรีวิวใบเสร็จรับเงิน</h3>
+                <button onclick="closeModal(null, 'receipt')" class="text-gray-600 hover:text-red-500 transition duration-150 text-3xl leading-none font-sans">&times;</button>
+            </div>
+            
+            <!-- Modal Body: แสดงใบเสร็จ -->
+            <div id="receiptPreview" class="p-2 overflow-y-auto max-h-[85vh]">
+                <div id="receipt-output">
+                    <!-- เนื้อหาใบเสร็จรับเงินจะถูกสร้างขึ้นที่นี่ -->
+                </div>
+            </div>
+
+            <!-- Modal Footer: ปุ่มดาวน์โหลด/แคปหน้าจอ -->
+            <div class="modal-hidden-on-print p-4 md:p-6 border-t border-gray-200 flex flex-wrap justify-center gap-4 bg-blue-50 rounded-b-xl">
+                <button onclick="downloadPDF('receipt')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
+                    ⬇️ ดาวน์โหลดเป็น PDF
+                </button>
+                <button onclick="captureScreen('receipt')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
+                    📷 แคปหน้าจอ (Copy Image)
+                </button>
+                <div id="receiptCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกรูปภาพแล้ว!</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for product configuration
+        const products = {
+            1: { 
+                id: 1, 
+                name: 'ฉากกั้น PVC', 
+                code: 'SN390-10', 
+                option1: 'เปิดข้าง', 
+                option2: 'เปิดกลาง' 
+            },
+            2: { 
+                id: 2, 
+                name: 'ม่านม้วน Blackout', 
+                code: 'RBP-3901', 
+                option1: 'ปรับซ้าย', 
+                option2: 'ปรับขวา' 
+            }
+        };
+
+        let nextRowId = 1; // Global counter for unique row IDs (Quotation)
+        let receiptItemCounter = 0; // Global counter for Receipt rows
+
+        // -----------------------------------------------------------
+        // 0. General UI and Utility Functions
+        // -----------------------------------------------------------
+        
+        /**
+         * สลับการแสดงผลระหว่างฟอร์มใบเสนอราคาและใบเสร็จรับเงิน
+         * @param {string} viewName - 'quotation' หรือ 'receipt'
+         */
+        function switchView(viewName) {
+            const views = {
+                quotation: document.getElementById('quotationView'),
+                receipt: document.getElementById('receiptView')
+            };
+            const buttons = {
+                quotation: document.getElementById('btnQuotation'),
+                receipt: document.getElementById('btnReceipt')
+            };
+
+            for (const key in views) {
+                if (key === viewName) {
+                    views[key].classList.remove('hidden');
+                    buttons[key].classList.add('active-tab');
+                    buttons[key].classList.remove('inactive-tab');
+                    // เมื่อสลับไปหน้าใบเสร็จ ให้ดึงข้อมูลเบื้องต้นจากใบเสนอราคามาใส่ในช่อง input
+                    if (viewName === 'receipt') {
+                        syncCustomerInfoToReceipt();
+                    }
+                } else {
+                    views[key].classList.add('hidden');
+                    buttons[key].classList.remove('active-tab');
+                    buttons[key].classList.add('inactive-tab');
+                }
+            }
+        }
+
+        /**
+         * ดึงข้อมูลลูกค้าจากใบเสนอราคามาใส่ในช่องกรอกของใบเสร็จ (เพื่อให้ง่ายต่อการกรอก)
+         */
+        function syncCustomerInfoToReceipt() {
+            document.getElementById('rCustomerName').value = document.getElementById('customerName').value;
+            document.getElementById('rCustomerAddress').value = document.getElementById('customerAddress').value;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // ตั้งค่าวันที่ปัจจุบันในช่องกรอกวันที่
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('quotationDate').value = today;
+            document.getElementById('receiptDate').value = today;
+            
+            // Add initial rows for Quotation products
+            addItemRow(1, true); 
+            addItemRow(2, true);
+
+            // Add initial rows for Receipt (Placeholder before importing)
+            addItemRowReceipt('ค่าบริการติดตั้งและค่าสินค้า', 1, 1000.00);
+        });
+        
+        /**
+         * ปิด Modal
+         * @param {Event} event - event object จากการคลิก
+         * @param {string} type - 'quotation' หรือ 'receipt'
+         */
+        function closeModal(event, type) {
+            const modalId = type === 'quotation' ? 'quotationModal' : 'receiptModal';
+            // ถ้ามีการส่ง event มา และ target ของ event คือตัว modal เอง (คลิกพื้นหลัง) 
+            if (!event || event.target.id === modalId) {
+                document.getElementById(modalId).style.display = 'none';
+            }
+        }
+
+        // -----------------------------------------------------------
+        // 1. Quotation Form Functions
+        // -----------------------------------------------------------
+
+        /**
+         * สร้าง HTML สำหรับแถวสินค้าใบเสนอราคา
+         */
+        function createProductRowHtml(productId, rowId, initialValues = {}) {
+            const p = products[productId];
+            const isInitial = document.getElementById(`product-items-${productId}`).childElementCount === 0;
+
+            const width = initialValues.width || '';
+            const height = initialValues.height || '';
+            const qty = initialValues.qty || 1;
+            const price = initialValues.price || '';
+            const option = initialValues.option || p.option1;
+
+
+            return `
+                <div id="item-row-${rowId}" data-product-id="${productId}" class="grid grid-cols-6 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 items-center">
+                    
+                    <!-- Width, Height -->
+                    <input type="number" data-field="width" placeholder="กว้าง (ซม.)" value="${width}" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
+                    <input type="number" data-field="height" placeholder="สูง (ซม.)" value="${height}" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
+                    
+                    <!-- Option -->
+                    <select data-field="option" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
+                        <option value="${p.option1}" ${option === p.option1 ? 'selected' : ''}>${p.option1}</option>
+                        <option value="${p.option2}" ${option === p.option2 ? 'selected' : ''}>${p.option2}</option>
+                    </select>
+
+                    <!-- Quantity -->
+                    <input type="number" data-field="qty" placeholder="จำนวน (ชุด)" class="col-span-3 md:col-span-1 p-2 border rounded-lg" min="1" value="${qty}" onchange="calculateQuotationTotal()">
+                    
+                    <!-- Price -->
+                    <input type="number" data-field="price" placeholder="ราคา/ชุด (บาท)" class="col-span-3 md:col-span-1 p-2 border rounded-lg" value="${price}" onchange="calculateQuotationTotal()">
+                    
+                    <!-- Remove Button -->
+                    <div class="col-span-6 md:col-span-1 flex justify-end">
+                        <button type="button" onclick="removeRow(${rowId})" 
+                            class="w-full md:w-auto p-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-150 transform hover:scale-105 ${isInitial ? 'opacity-0 pointer-events-none' : ''}">
+                            ลบ
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * เพิ่มแถวสินค้าในใบเสนอราคา
+         */
+        function addItemRow(productId, isInitialLoad = false, initialValues = {}) {
+            const container = document.getElementById(`product-items-${productId}`);
+            if (!container) return;
+
+            const newRowId = nextRowId++;
+            const newRowHtml = createProductRowHtml(productId, newRowId, initialValues);
+            container.insertAdjacentHTML('beforeend', newRowHtml);
+            
+            if (!isInitialLoad) {
+                calculateQuotationTotal();
+                const newRowElement = document.getElementById(`item-row-${newRowId}`);
+                newRowElement.querySelector('button').classList.remove('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        /**
+         * ลบแถวสินค้าในใบเสนอราคา
+         */
+        function removeRow(rowId) {
+            const rowElement = document.getElementById(`item-row-${rowId}`);
+            if (rowElement) {
+                const productId = rowElement.getAttribute('data-product-id');
+                rowElement.remove();
+                // ถ้าลบหมดแล้ว ให้เพิ่มแถวเริ่มต้นกลับเข้าไป 1 แถวเพื่อป้องกัน Container ว่าง
+                if (document.getElementById(`product-items-${productId}`).childElementCount === 0) {
+                     addItemRow(parseInt(productId), true);
+                }
+                calculateQuotationTotal();
+            }
+        }
+
+        /**
+         * คำนวณราคารวมในใบเสนอราคา
+         */
+        function calculateQuotationTotal() {
+            let subtotal = 0;
+            const allItemRows = document.querySelectorAll('#productContainer [data-product-id]');
+            
+            allItemRows.forEach(rowEl => {
+                const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
+                const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
+                subtotal += (qty * price);
+            });
+
+            document.getElementById('quotationSubtotalDisplay').textContent = subtotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            return subtotal;
+        }
+
+        /**
+         * ดึงข้อมูลทั้งหมดสำหรับสร้างใบเสนอราคา
+         */
+        function getQuotationFormData() {
+            const data = {
+                sellerName: document.getElementById('sellerName').value,
+                sellerInfo: document.getElementById('sellerInfo').value,
+                sellerTaxId: document.getElementById('sellerTaxId').value,
+                customerName: document.getElementById('customerName').value,
+                customerAddress: document.getElementById('customerAddress').value,
+                quotationDate: document.getElementById('quotationDate').value,
+                paymentDetail: document.getElementById('paymentDetail').value,
+                bankName: document.getElementById('bankName').value,
+                accountNumber: document.getElementById('accountNumber').value,
+                accountName: document.getElementById('accountName').value,
+                items: []
+            };
+
+            const allItemRows = document.querySelectorAll('#productContainer [data-product-id]');
+            
+            allItemRows.forEach(rowEl => {
+                const productId = parseInt(rowEl.getAttribute('data-product-id'));
+                const p = products[productId];
+
+                const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
+                const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
+                const width = parseFloat(rowEl.querySelector(`[data-field="width"]`).value) || 0;
+                const height = parseFloat(rowEl.querySelector(`[data-field="height"]`).value) || 0;
+                const option = rowEl.querySelector(`[data-field="option"]`).value;
+
+                if (qty > 0 && price > 0) {
+                    data.items.push({
+                        name: p.name,
+                        code: p.code,
+                        description: `${p.name} ${width > 0 && height > 0 ? 'ขนาด: ' + width + ' x ' + height + ' ซม. ' : ''}(${option})`,
+                        qty: qty,
+                        unitPrice: price,
+                        total: qty * price
+                    });
+                }
+            });
+
+            data.subtotal = data.items.reduce((sum, item) => sum + item.total, 0);
+            return data;
+        }
+
+        /**
+         * สร้าง HTML สำหรับใบเสนอราคา (ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก)
+         */
+        function createQuotationHtml(data) {
+            if (data.items.length === 0) {
+                return '<div class="text-center p-10 text-xl text-red-500">กรุณากรอกรายการสินค้าอย่างน้อย 1 รายการ</div>';
+            }
+
+            const formattedDate = new Date(data.quotationDate).toLocaleDateString('th-TH', { 
+                day: 'numeric', month: 'long', year: 'numeric' 
+            });
+
+            let itemsHtml = '';
+            data.items.forEach((item, index) => {
+                itemsHtml += `
+                    <tr class="h-10 text-sm">
+                        <td class="border border-gray-300 px-3 text-center w-10">${index + 1}</td>
+                        <td class="border border-gray-300 px-3 font-semibold">${item.name} <span class="text-xs text-gray-500">(${item.code})</span></td>
+                        <td class="border border-gray-300 px-3">${item.description}</td>
+                        <td class="border border-gray-300 px-3 text-center w-20">${item.qty.toLocaleString('th-TH', { maximumFractionDigits: 0 })}</td>
+                        <td class="border border-gray-300 px-3 text-center w-20">ชุด</td>
+                        <td class="border border-gray-300 px-3 text-right w-24">${item.unitPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${item.total.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                    </tr>
+                `;
+            });
+
+            const subtotalFormatted = data.subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            // Calculate VAT: Assume VAT is included in the total price, or add it. Here we add it for documentation consistency.
+            const vatRate = 0.07;
+            const vat = data.subtotal * vatRate; 
+            const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            const netTotal = data.subtotal + vat;
+            const netTotalFormatted = netTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+
+            const htmlContent = `
+                <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
+                    
+                    <!-- Header: ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก -->
+                    <header class="text-center border-b-2 border-gray-800 pb-4">
+                        <h1 class="text-3xl font-bold mb-1">ใบเสนอราคา (QUOTATION)</h1>
+                        <p class="text-xl font-semibold">${data.sellerName || '_________________________________'}</p>
+                        <!-- ใช้ whitespace-pre-wrap เพื่อให้ textarea ที่มีบรรทัดขึ้นใหม่แสดงผลถูกต้อง -->
+                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo || '_________________________________'}</p>
+                    </header>
+                    
+                    <!-- Customer and Date Info -->
+                    <div class="flex justify-between text-sm">
+                        <div class="w-1/2 pr-4 border border-gray-300 p-2 rounded-lg">
+                            <p class="font-bold">เรียน: ${data.customerName || '_________________________________'}</p>
+                            <p>ที่อยู่: ${data.customerAddress || '_________________________________'}</p>
+                        </div>
+                        <div class="w-1/3 pl-4">
+                            <p><strong>เลขที่:</strong> QUO-${new Date().getFullYear()}${new Date().getMonth() + 1}${new Date().getDate()}</p>
+                            <p><strong>วันที่:</strong> ${formattedDate}</p>
+                            <p><strong>อ้างอิง:</strong> ______________________</p>
+                        </div>
+                    </div>
+
+                    <!-- Item Table -->
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="w-full border-collapse">
+                            <thead>
+                                <tr class="bg-gray-100 text-sm font-bold h-12">
+                                    <td class="border border-gray-300 px-3 text-center">ลำดับ</td>
+                                    <td class="border border-gray-300 px-3 text-left">รายการ</td>
+                                    <td class="border border-gray-300 px-3 text-left">รายละเอียด</td>
+                                    <td class="border border-gray-300 px-3 text-center">จำนวน</td>
+                                    <td class="border border-gray-300 px-3 text-center">หน่วย</td>
+                                    <td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td>
+                                    <td class="border border-gray-300 px-3 text-right">ราคารวม</td>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${itemsHtml}
+                                <!-- Row padding if items < 5 -->
+                                ${'<tr><td class="border border-gray-300 h-10"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - data.items.length))}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Summary and Payment -->
+                    <div class="flex justify-between items-start">
+                        <div class="w-3/5 pr-4 space-y-3">
+                            <div class="border border-gray-400 p-3 rounded-lg">
+                                <p class="font-bold text-lg text-indigo-700 mb-2">รายละเอียดการชำระเงิน</p>
+                                <p class="text-sm">${data.paymentDetail || 'ชำระเต็มจำนวนภายใน 7 วัน นับจากวันที่ในใบเสนอราคา'}</p>
+                            </div>
+
+                            <div class="border border-gray-400 p-3 rounded-lg bg-gray-50">
+                                <p class="font-bold">โอนเงินเข้าบัญชี:</p>
+                                <p class="text-sm">ชื่อธนาคาร: ${data.bankName || 'ธนาคารตัวอย่าง'}</p>
+                                <p class="text-sm">เลขที่บัญชี: ${data.accountNumber || 'XXX-X-XXXXX-X'}</p>
+                                <p class="text-sm">ชื่อบัญชี: ${data.accountName || 'บริษัท ตัวอย่าง จำกัด'}</p>
+                            </div>
+                        </div>
+
+                        <div class="w-2/5 border border-gray-800">
+                            <div class="flex justify-between p-2 border-b border-gray-800">
+                                <span class="text-sm">รวมราคาสินค้า</span>
+                                <span class="text-sm">${subtotalFormatted}</span>
+                            </div>
+                            <div class="flex justify-between p-2 border-b border-gray-800">
+                                <span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span>
+                                <span class="text-sm">${vatFormatted}</span>
+                            </div>
+                            <div class="flex justify-between p-2 bg-gray-200">
+                                <span class="text-lg font-bold">รวมทั้งสิ้น</span>
+                                <span class="text-lg font-bold text-red-600">${netTotalFormatted} บาท</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Signatures -->
+                    <div class="flex justify-between pt-10 text-sm">
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
+                            <p>ผู้เสนอราคา</p>
+                            <p>(_________________________)</p>
+                        </div>
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
+                            <p>ผู้อนุมัติ / ผู้สั่งซื้อ</p>
+                            <p>(_________________________)</p>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <footer class="text-center text-xs text-gray-500 pt-10">
+                        <p>ใบเสนอราคานี้มีอายุ 30 วันนับจากวันที่ออกใบเสนอราคา</p>
+                    </footer>
+                </div>
+            `;
+            return htmlContent;
+        }
+
+        /**
+         * แสดง Modal และสร้างใบเสนอราคา
+         */
+        function generateQuotation() {
+            const data = getQuotationFormData();
+            const modal = document.getElementById('quotationModal');
+            const output = document.getElementById('quotation-output');
+            
+            output.innerHTML = createQuotationHtml(data);
+            
+            modal.style.display = 'flex';
+            
+            document.getElementById('quotationCopyMessage').classList.add('hidden');
+        }
+
+        // -----------------------------------------------------------
+        // 2. Receipt Form Functions
+        // -----------------------------------------------------------
+        
+        /**
+         * สร้างแถวใหม่สำหรับรายการสินค้าใบเสร็จ
+         */
+        function addItemRowReceipt(description = '', quantity = 1, price = 0) {
+            receiptItemCounter++;
+            const itemTableBody = document.getElementById('receiptItemTableBody');
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-gray-50 transition duration-100';
+            
+            // ใช้ toFixed(2) กับ price เพื่อให้ค่าเริ่มต้นดูดี
+            const initialPrice = price.toFixed(2);
+            
+            row.innerHTML = `
+                <td class="px-3 py-2 text-center text-gray-500">${receiptItemCounter}</td>
+                <td class="px-6 py-2">
+                    <input type="text" value="${description}" placeholder="รายละเอียดรายการ" class="w-full item-description p-1 border rounded focus:ring-blue-500 transition duration-150">
+                </td>
+                <td class="px-6 py-2">
+                    <input type="number" value="${quantity}" min="1" class="w-full item-quantity p-1 border rounded text-right transition duration-150">
+                </td>
+                <td class="px-6 py-2">
+                    <input type="number" value="${initialPrice}" min="0" step="0.01" class="w-full item-price p-1 border rounded text-right transition duration-150">
+                </td>
+                <td class="px-6 py-2 text-right">
+                    <span class="item-total font-semibold text-gray-700">0.00</span>
+                </td>
+                <td class="px-1 py-2 text-center no-print">
+                    <button type="button" class="remove-item-btn text-red-500 hover:text-red-700 transition duration-150 p-1 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9 2a1 1 10-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5 0a1 1 0 10-2 0v6a1 1 0 102 0V8z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </td>
+            `;
+
+            const inputsToListen = [
+                row.querySelector('.item-quantity'), 
+                row.querySelector('.item-price'), 
+                row.querySelector('.item-description')
+            ];
+
+            inputsToListen.forEach(input => {
+                input.addEventListener('input', calculateReceiptTotals);
+            });
+
+            row.querySelector('.remove-item-btn').addEventListener('click', () => {
+                row.remove();
+                reindexReceiptRows();
+                calculateReceiptTotals();
+            });
+
+            itemTableBody.appendChild(row);
+            calculateReceiptTotals(); // Update totals immediately
+        }
+        
+        /**
+         * ดึงรายการสินค้าที่ได้รับการคำนวณราคาแล้วจากใบเสนอราคามาใส่ในใบเสร็จ
+         */
+        function populateReceiptFromQuotation() {
+            const quotationData = getQuotationFormData();
+            const itemTableBody = document.getElementById('receiptItemTableBody');
+            
+            if (quotationData.items.length === 0) {
+                 // ใช้ Modal แทน alert เพื่อให้ UX ดีขึ้น
+                 alert('ไม่พบรายการสินค้าที่กรอกข้อมูลสมบูรณ์ในใบเสนอราคา (ต้องมีจำนวนและราคา > 0)');
+                 return;
+            }
+
+            // 1. Clear existing items
+            itemTableBody.innerHTML = '';
+            receiptItemCounter = 0;
+
+            // 2. Populate new items from quotation
+            quotationData.items.forEach(item => {
+                // สำหรับใบเสร็จ จะรวมจำนวน x ราคาต่อหน่วย เป็น "รวมทั้งสิ้น"
+                addItemRowReceipt(item.description, 1, item.total);
+            });
+            
+            // 3. Update customer info (just in case they haven't switched view yet)
+            syncCustomerInfoToReceipt();
+            
+            alert(`ดึงรายการสินค้า ${quotationData.items.length} รายการจากใบเสนอราคามายังใบเสร็จเรียบร้อยแล้ว!`);
+        }
+
+
+        /**
+         * จัดเรียงหมายเลขลำดับในใบเสร็จใหม่
+         */
+        function reindexReceiptRows() {
+            const itemTableBody = document.getElementById('receiptItemTableBody');
+            const rows = itemTableBody.querySelectorAll('tr');
+            receiptItemCounter = 0;
+            rows.forEach((row, index) => {
+                receiptItemCounter = index + 1;
+                row.querySelector('td:first-child').textContent = receiptItemCounter;
+            });
+        }
+
+        /**
+         * คำนวณราคารวมทั้งหมดในใบเสร็จ
+         */
+        function calculateReceiptTotals() {
+            const itemTableBody = document.getElementById('receiptItemTableBody');
+            const rows = itemTableBody.querySelectorAll('tr');
+            let subtotal = 0;
+            const VAT_RATE = 0.07;
+
+            rows.forEach(row => {
+                const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const price = parseFloat(row.querySelector('.item-price').value) || 0;
+                const total = quantity * price;
+
+                row.querySelector('.item-total').textContent = total.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                subtotal += total;
+            });
+
+            const vat = subtotal * VAT_RATE;
+            const grandTotal = subtotal + vat;
+
+            return { subtotal, vat, grandTotal };
+        }
+
+        /**
+         * สร้าง HTML สำหรับใบเสร็จรับเงิน
+         */
+        function createReceiptHtml(data) {
+            const totals = calculateReceiptTotals();
+            const { subtotal, vat, grandTotal } = totals;
+
+            const subtotalFormatted = subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            const grandTotalFormatted = grandTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+
+            const formattedDate = new Date(data.receiptDate).toLocaleDateString('th-TH', { 
+                day: 'numeric', month: 'long', year: 'numeric' 
+            });
+            
+            // ดึง HTML ของตารางรายการสินค้าที่กรอกในฟอร์ม
+            let tableBodyHtml = '';
+            const itemTableBody = document.getElementById('receiptItemTableBody');
+            const rows = itemTableBody.querySelectorAll('tr');
+
+            rows.forEach((row, index) => {
+                const description = row.querySelector('.item-description').value;
+                const quantity = row.querySelector('.item-quantity').value;
+                const unitPrice = row.querySelector('.item-price').value;
+                const total = row.querySelector('.item-total').textContent;
+
+                tableBodyHtml += `
+                    <tr class="h-8 text-sm">
+                        <td class="border border-gray-300 px-3 text-center w-10">${index + 1}</td>
+                        <td class="border border-gray-300 px-3">${description}</td>
+                        <td class="border border-gray-300 px-3 text-right w-20">${quantity}</td>
+                        <td class="border border-gray-300 px-3 text-right w-24">${parseFloat(unitPrice).toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${total}</td>
+                    </tr>
+                `;
+            });
+
+
+            const htmlContent = `
+                <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
+                    
+                    <!-- Header: ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก -->
+                    <header class="text-center border-b-2 border-gray-800 pb-4">
+                        <h1 class="text-3xl font-bold mb-1">ใบเสร็จรับเงิน (RECEIPT)</h1>
+                        <p class="text-xl font-semibold">${data.sellerName || '_________________________________'}</p>
+                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo || '_________________________________'}</p>
+                        <p class="text-sm">เลขประจำตัวผู้เสียภาษี: ${data.sellerTaxId || '_________________________________'}</p>
+                    </header>
+                    
+                    <!-- Customer and Date Info -->
+                    <div class="flex justify-between text-sm">
+                        <div class="w-1/2 pr-4 border border-gray-300 p-2 rounded-lg">
+                            <p class="font-bold">ลูกค้า: ${data.rCustomerName || '_________________________________'}</p>
+                            <p>ที่อยู่: ${data.rCustomerAddress || '_________________________________'}</p>
+                            <p>เลขผู้เสียภาษี: ${data.rCustomerTaxId || '_________________________________'}</p>
+                        </div>
+                        <div class="w-1/3 pl-4">
+                            <p><strong>เลขที่:</strong> ${data.receiptNo}</p>
+                            <p><strong>วันที่:</strong> ${formattedDate}</p>
+                            <p><strong>วิธีการชำระ:</strong> ${data.paymentMethod}</p>
+                        </div>
+                    </div>
+
+                    <!-- Item Table -->
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="w-full border-collapse">
+                            <thead>
+                                <tr class="bg-gray-100 text-sm font-bold h-10">
+                                    <td class="border border-gray-300 px-3 text-center">ลำดับ</td>
+                                    <td class="border border-gray-300 px-3 text-left">รายการ</td>
+                                    <td class="border border-gray-300 px-3 text-right">จำนวน</td>
+                                    <td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td>
+                                    <td class="border border-gray-300 px-3 text-right">รวม (บาท)</td>
+                                </tr>
+                            </thead>
+                            <tbody class="text-sm">
+                                ${tableBodyHtml}
+                                <!-- Add padding rows if needed for visual spacing -->
+                                ${'<tr><td class="border border-gray-300 h-8"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - receiptItemCounter))}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Summary and Signatures -->
+                    <div class="flex justify-between items-start pt-4">
+                        <div class="w-3/5 pr-4 space-y-3">
+                            <p class="text-sm border border-gray-400 p-2 rounded-lg">
+                                ** หมายเหตุ: ได้รับเงินเรียบร้อยแล้ว **
+                            </p>
+                        </div>
+
+                        <div class="w-2/5 border border-gray-800">
+                            <div class="flex justify-between p-2 border-b border-gray-800">
+                                <span class="text-sm">รวมเป็นเงิน</span>
+                                <span class="text-sm">${subtotalFormatted}</span>
+                            </div>
+                            <div class="flex justify-between p-2 border-b border-gray-800">
+                                <span class="text-sm">ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
+                                <span class="text-sm">${vatFormatted}</span>
+                            </div>
+                            <div class="flex justify-between p-2 bg-gray-200">
+                                <span class="text-lg font-bold">ยอดเงินสุทธิ</span>
+                                <span class="text-lg font-bold text-blue-600">${grandTotalFormatted} บาท</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Signatures -->
+                    <div class="flex justify-between pt-10 text-sm">
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
+                            <p>ผู้รับเงิน</p>
+                            <p>(_________________________)</p>
+                        </div>
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
+                            <p>ผู้จ่ายเงิน</p>
+                            <p>(_________________________)</p>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <footer class="text-center text-xs text-gray-500 pt-10">
+                        <p>ขอบคุณที่ใช้บริการ</p>
+                    </footer>
+                </div>
+            `;
+            return htmlContent;
+        }
+
+
+        /**
+         * แสดง Modal และสร้างใบเสร็จรับเงิน
+         */
+        function generateReceipt() {
+            const data = {
+                sellerName: document.getElementById('sellerName').value,
+                sellerInfo: document.getElementById('sellerInfo').value,
+                sellerTaxId: document.getElementById('sellerTaxId').value,
+                rCustomerName: document.getElementById('rCustomerName').value,
+                rCustomerAddress: document.getElementById('rCustomerAddress').value,
+                rCustomerTaxId: document.getElementById('rCustomerTaxId').value,
+                receiptNo: document.getElementById('receiptNo').value,
+                receiptDate: document.getElementById('receiptDate').value,
+                paymentMethod: document.getElementById('paymentMethod').value,
+            };
+
+            const modal = document.getElementById('receiptModal');
+            const output = document.getElementById('receipt-output');
+            
+            output.innerHTML = createReceiptHtml(data);
+            
+            modal.style.display = 'flex';
+            
+            document.getElementById('receiptCopyMessage').classList.add('hidden');
+        }
+
+        // -----------------------------------------------------------
+        // 3. File Management Functions (PDF/Capture)
+        // -----------------------------------------------------------
+
+        /**
+         * ดาวน์โหลดเอกสารเป็น PDF
+         * @param {string} type - 'quotation' หรือ 'receipt'
+         */
+        function downloadPDF(type) {
+            const outputId = type === 'quotation' ? 'quotation-output' : 'receipt-output';
+            const output = document.getElementById(outputId);
+            const { jsPDF } = window.jspdf;
+
+            const pdf = new jsPDF('p', 'pt', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const margin = 20;
+
+            html2canvas(output, { 
+                scale: 2, 
+                scrollY: -window.scrollY 
+            }).then(canvas => {
+                const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                const imgWidth = pdfWidth - (2 * margin);
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+                pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+                
+                const filename = `${type === 'quotation' ? 'ใบเสนอราคา' : 'ใบเสร็จรับเงิน'}_${new Date().toISOString().split('T')[0]}.pdf`;
+                pdf.save(filename);
+            });
+        }
+
+        /**
+         * แคปหน้าจอ (Copy Image to Clipboard)
+         * @param {string} type - 'quotation' หรือ 'receipt'
+         */
+        function captureScreen(type) {
+            const outputId = type === 'quotation' ? 'quotation-output' : 'receipt-output';
+            const messageId = type === 'quotation' ? 'quotationCopyMessage' : 'receiptCopyMessage';
+            const output = document.getElementById(outputId);
+            
+            html2canvas(output, { 
+                scale: 2, 
+                scrollY: -window.scrollY 
+            }).then(canvas => {
+                canvas.toBlob(blob => {
+                    if (navigator.clipboard && navigator.clipboard.write) {
+                        const item = new ClipboardItem({ "image/png": blob });
+                        navigator.clipboard.write([item]).then(() => {
+                            const msg = document.getElementById(messageId);
+                            msg.classList.remove('hidden');
+                            setTimeout(() => msg.classList.add('hidden'), 3000);
+                        }).catch(err => {
+                            console.error('ไม่สามารถคัดลอกรูปภาพได้:', err);
+                        });
+                    } else {
+                        console.error('เบราว์เซอร์ไม่รองรับการคัดลอกรูปภาพอัตโนมัติ');
+                    }
+                }, 'image/png');
+            });
+        }
+        
+        // -----------------------------------------------------------
+        // 4. Gemini API Setup (Quotation only)
+        // -----------------------------------------------------------
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        async function fetchWithExponentialBackoff(url, options, maxRetries = 5, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) {
+                        if (i < maxRetries - 1) {
+                            await new Promise(resolve => setTimeout(resolve, delay * (2 ** i) + Math.random() * 1000));
+                            continue;
+                        }
+                    }
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    console.error(`Fetch attempt ${i + 1} failed:`, error);
+                    if (i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay * (2 ** i) + Math.random() * 1000));
+                    } else {
+                        throw new Error("API request failed after maximum retries.");
+                    }
+                }
+            }
+        }
+        
+        async function generatePaymentDetails() {
+            const btn = document.getElementById('generatePaymentBtn');
+            const paymentDetailEl = document.getElementById('paymentDetail');
+            const originalHtml = btn.innerHTML; 
+
+            btn.disabled = true;
+            paymentDetailEl.placeholder = 'กำลังสร้างข้อความ... โปรดรอสักครู่';
+            btn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>กำลังสร้าง...</span>`;
+
+            try {
+                const customerName = document.getElementById('customerName').value || 'ลูกค้า';
+
+                const systemPrompt = `คุณคือผู้เชี่ยวชาญด้านการเงินและการบัญชี โปรดสร้าง "รายละเอียดการชำระเงิน" ที่เป็นทางการ สุภาพ และครอบคลุมเป็นภาษาไทย โดยเน้นเรื่องเงื่อนไขการชำระเงิน (เช่น การแบ่งชำระ, วันที่ครบกำหนด) และวิธีชำระเงิน (การโอนเงิน) ห้ามใช้ Markdown หรือหัวข้อ`;
+                
+                const userQuery = `สร้างรายละเอียดการชำระเงินสำหรับใบเสนอราคาที่ส่งถึง "${customerName}" โดยให้มีรายละเอียดดังนี้: 1. ต้องชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการ 2. ชำระส่วนที่เหลือ 50% หลังจากการติดตั้งเสร็จสิ้นและตรวจรับงาน 3. ใบเสนอราคานี้มีผลภายใน 30 วันนับจากวันที่ออกใบเสนอราคา`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    config: { temperature: 0.4 }
+                };
+
+                const response = await fetchWithExponentialBackoff(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (generatedText) {
+                    paymentDetailEl.value = generatedText.trim();
+                } else {
+                    console.error('Gemini API returned no text.', result);
+                    // Use a simple, non-blocking UI alert style
+                    const message = 'ไม่สามารถสร้างรายละเอียดได้ กรุณาลองใหม่ (API Error)';
+                    console.log(message);
+                }
+
+            } catch (error) {
+                console.error('Error generating payment details:', error);
+                 // Use a simple, non-blocking UI alert style
+                const message = 'เกิดข้อผิดพลาดในการเชื่อมต่อ API กรุณาตรวจสอบคอนโซล (Connection Error)';
+                console.log(message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+                paymentDetailEl.placeholder = 'รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)';
+            }
+        }
+    </script>
+
+</body>
+</html>
