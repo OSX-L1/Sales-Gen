@@ -3,89 +3,107 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เครื่องมือจัดการเอกสารขาย (ใบเสนอราคา & ใบเสร็จ)</title>
+    <title>เครื่องมือจัดการเอกสารขาย (ใบเสนอราคา & ใบเสร็จ) + ระบบบันทึก</title>
+    
     <!-- โหลด Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- โหลด Google Font Sarabun TH สำหรับการแสดงผลภาษาไทย -->
+    <!-- โหลด Google Font Sarabun TH -->
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
-    <!-- โหลด Library สำหรับการสร้าง PDF และ Capture หน้าจอ -->
+    <!-- โหลด Library สำหรับ PDF/Capture -->
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- โหลด Firebase SDK (Modular ใช้งานผ่าน Compat เพื่อความง่ายในไฟล์เดียว) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     
     <style>
-        /* กำหนด Font Sarabun TH เป็น Font หลัก */
-        body {
-            font-family: 'Sarabun', sans-serif;
-            background-color: #f3f4f6;
-        }
-        /* Style สำหรับเอกสาร (ใช้สำหรับ export) */
+        body { font-family: 'Sarabun', sans-serif; background-color: #f3f4f6; }
+        
+        /* Style สำหรับเอกสาร A4 */
         #quotation-output, #receipt-output {
             background-color: white;
             padding: 2.5rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            min-height: 1123px; /* A4 height */
-            width: 794px; /* A4 width */
-            margin: auto;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            min-height: 1123px; width: 794px; margin: auto;
         }
         
-        /* สไตล์สำหรับซ่อนเมื่อสั่งพิมพ์ */
         @media print {
-            .modal-hidden-on-print, .no-print {
-                display: none !important;
-            }
-            /* ปรับขนาดตัวอักษรสำหรับพิมพ์ใบเสร็จ */
-            #receipt-view .item-description { border: none !important; padding: 0 !important; }
-            #receipt-view .item-quantity { border: none !important; padding: 0 !important; }
-            #receipt-view .item-price { border: none !important; padding: 0 !important; }
-            .page-container { box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
+            .modal-hidden-on-print, .no-print { display: none !important; }
+            .page-container { box-shadow: none !important; margin: 0 !important; }
         }
 
-        /* Custom styles for number inputs */
         input[type="number"]::-webkit-inner-spin-button, 
-        input[type="number"]::-webkit-outer-spin-button { 
-            -webkit-appearance: none; 
-            margin: 0; 
-        }
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         
-        /* Tab Styles */
-        .active-tab {
-            background-color: #4f46e5;
-            color: white;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .inactive-tab {
-            background-color: #eef2ff;
-            color: #4f46e5;
-            border: 1px solid #c7d2fe;
-        }
-        .inactive-tab:hover {
-            background-color: #e0e7ff;
+        .active-tab { background-color: #4f46e5; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .inactive-tab { background-color: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
+        .inactive-tab:hover { background-color: #e0e7ff; }
+
+        /* Loading Overlay */
+        #loadingOverlay {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(2px);
         }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-8 relative">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-5 right-5 z-[100] bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full opacity-0 flex items-center">
+        <span id="toastMessage">ข้อความแจ้งเตือน</span>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 z-[90] hidden items-center justify-center">
+        <div class="flex flex-col items-center">
+            <svg class="animate-spin h-10 w-10 text-indigo-600 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-indigo-800 font-semibold">กำลังดำเนินการ...</span>
+        </div>
+    </div>
 
     <div class="max-w-4xl mx-auto bg-white p-6 md:p-10 rounded-xl shadow-2xl">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">ระบบจัดการเอกสารการขาย</h1>
+        <h1 class="text-3xl font-bold text-gray-800 mb-2 text-center">ระบบจัดการเอกสารการขาย</h1>
+        <p class="text-center text-gray-500 mb-6 text-sm">สร้างใบเสนอราคา ใบเสร็จ และบันทึกข้อมูลออนไลน์</p>
         
-        <!-- Navigation/Toggle Bar -->
-        <div class="no-print flex justify-center space-x-4 mb-8 border-b-2 pb-4">
+        <!-- Main Navigation -->
+        <div class="no-print flex flex-wrap justify-center gap-3 mb-8 border-b-2 pb-4">
             <button onclick="switchView('quotation')" id="btnQuotation" class="px-6 py-2 rounded-lg font-bold transition duration-150 active-tab">
-                สร้างใบเสนอราคา
+                📝 สร้างใบเสนอราคา
             </button>
             <button onclick="switchView('receipt')" id="btnReceipt" class="px-6 py-2 rounded-lg font-bold transition duration-150 inactive-tab">
-                สร้างใบเสร็จรับเงิน
+                🧾 สร้างใบเสร็จรับเงิน
             </button>
+            
+            <!-- Cloud Actions -->
+            <div class="flex gap-2 ml-0 md:ml-4 border-l-2 pl-4 border-gray-200">
+                <button onclick="saveQuotationToCloud()" class="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold shadow-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                    บันทึก
+                </button>
+                <button onclick="openSavedListModal()" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold shadow-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    ประวัติ (Load)
+                </button>
+            </div>
         </div>
 
-        <!-- 0. ข้อมูลผู้ขาย (เพิ่มใหม่ตามที่ร้องขอ) -->
+        <!-- 0. ข้อมูลผู้ขาย -->
         <section class="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50 no-print">
-            <h2 class="text-xl font-semibold text-blue-700 mb-3">0. ข้อมูลผู้ขาย (บริษัทของคุณ)</h2>
-            <input id="sellerName" type="text" placeholder="ชื่อบริษัท (ผู้ขาย)" value="บริษัท ตัวอย่าง จำกัด" class="w-full p-3 mb-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
-            <textarea id="sellerInfo" rows="2" placeholder="ที่อยู่, เลขผู้เสียภาษี, โทรศัพท์ ฯลฯ" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">99/9 หมู่ 9 ถนนตัวอย่าง ตำบลตัวอย่าง อำเภอตัวอย่าง จังหวัดตัวอย่าง 10000</textarea>
-            <input type="text" id="sellerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ใช้ในใบเสร็จ)" value="1234567890123" class="w-full mt-2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-xl font-semibold text-blue-700">0. ข้อมูลผู้ขาย (บริษัทของคุณ)</h2>
+                <button onclick="toggleSection('sellerSection')" class="text-blue-500 text-sm hover:underline">ซ่อน/แสดง</button>
+            </div>
+            <div id="sellerSection">
+                <input id="sellerName" type="text" placeholder="ชื่อบริษัท (ผู้ขาย)" value="บริษัท ตัวอย่าง จำกัด" class="w-full p-3 mb-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+                <textarea id="sellerInfo" rows="2" placeholder="ที่อยู่, เลขผู้เสียภาษี, โทรศัพท์ ฯลฯ" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">99/9 หมู่ 9 ถนนตัวอย่าง ตำบลตัวอย่าง อำเภอตัวอย่าง จังหวัดตัวอย่าง 10000</textarea>
+                <input type="text" id="sellerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ใช้ในใบเสร็จ)" value="1234567890123" class="w-full mt-2 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition duration-150">
+            </div>
         </section>
-
 
         <!-- ========================================================================= -->
         <!-- VIEW 1: QUOTATION FORM (ใบเสนอราคา) -->
@@ -107,38 +125,34 @@
                 <h2 class="text-xl font-semibold text-green-700 mb-4">2. รายการสินค้าและราคา</h2>
                 
                 <div id="productContainer" class="space-y-8">
-                    
                     <!-- สินค้า 1: ฉากกั้น PVC -->
                     <div id="product-1" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
-                        <h3 class="font-bold text-xl text-green-600 mb-1">ฉากกั้น PVC (รหัส SN390-10)</h3>
+                        <h3 class="font-bold text-xl text-green-600 mb-1 flex items-center flex-wrap gap-2">
+                            ฉากกั้น PVC 
+                            <span class="text-gray-500 text-lg font-normal flex items-center">
+                                (รหัส <input type="text" id="product-code-1" value="SN390-10" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 focus:ring-2 focus:ring-green-500 outline-none bg-green-50">)
+                            </span>
+                        </h3>
                         <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, เปิดข้าง/เปิดกลาง</p>
-                        
-                        <div id="product-items-1" class="space-y-4 mb-4">
-                            <!-- รายการสินค้าจะถูกเพิ่มที่นี่โดย JavaScript -->
-                        </div>
-
-                        <button type="button" onclick="addItemRow(1)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 transition duration-150 border-dashed border-2 border-green-300">
-                            + เพิ่มรายการฉากกั้น PVC
-                        </button>
+                        <div id="product-items-1" class="space-y-4 mb-4"></div>
+                        <button type="button" onclick="addItemRow(1)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 border-dashed border-2 border-green-300">+ เพิ่มรายการฉากกั้น PVC</button>
                     </div>
 
                     <!-- สินค้า 2: ม่านม้วน Blackout -->
                     <div id="product-2" class="p-4 border border-green-300 rounded-lg bg-white shadow-md">
-                        <h3 class="font-bold text-xl text-green-600 mb-1">ม่านม้วน Blackout (รหัส RBP-3901)</h3>
+                        <h3 class="font-bold text-xl text-green-600 mb-1 flex items-center flex-wrap gap-2">
+                            ม่านม้วน Blackout 
+                            <span class="text-gray-500 text-lg font-normal flex items-center">
+                                (รหัส <input type="text" id="product-code-2" value="RBP-3901" class="mx-1 p-1 border border-green-300 rounded text-sm w-28 text-green-700 focus:ring-2 focus:ring-green-500 outline-none bg-green-50">)
+                            </span>
+                        </h3>
                         <p class="text-sm text-gray-500 mb-3">รูปแบบ: ขนาด กว้าง x สูง, ปรับซ้าย/ปรับขวา</p>
-                        
-                        <div id="product-items-2" class="space-y-4 mb-4">
-                            <!-- รายการสินค้าจะถูกเพิ่มที่นี่โดย JavaScript -->
-                        </div>
-
-                        <button type="button" onclick="addItemRow(2)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 transition duration-150 border-dashed border-2 border-green-300">
-                            + เพิ่มรายการม่านม้วน Blackout
-                        </button>
+                        <div id="product-items-2" class="space-y-4 mb-4"></div>
+                        <button type="button" onclick="addItemRow(2)" class="w-full py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 border-dashed border-2 border-green-300">+ เพิ่มรายการม่านม้วน Blackout</button>
                     </div>
-
                 </div>
                 
-                <!-- ส่วนสรุปราคาและตัวเลือก VAT (เพิ่มใหม่) -->
+                <!-- ส่วนสรุปราคาและตัวเลือก VAT -->
                 <div class="mt-6 p-4 rounded-lg bg-green-100">
                     <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
                         <div class="bg-white p-3 rounded-lg border border-green-300 shadow-sm w-full md:w-auto">
@@ -154,7 +168,6 @@
                                 </label>
                             </div>
                         </div>
-                        
                         <div class="text-right">
                             <p class="text-2xl font-bold text-gray-800">รวมราคาสินค้า: <span id="quotationSubtotalDisplay" class="text-red-600">0.00</span> บาท</p>
                             <small class="text-gray-600">* ราคานี้เป็นราคาก่อนรวมภาษี (Subtotal)</small>
@@ -166,17 +179,14 @@
             <!-- ส่วนที่ 3: รายละเอียดการชำระเงิน -->
             <section class="mb-8 p-4 border border-yellow-200 rounded-lg bg-yellow-50">
                 <h2 class="text-xl font-semibold text-yellow-700 mb-4">3. รายละเอียดการชำระเงิน</h2>
-                
-                <!-- Gemini Feature Button -->
                 <div class="flex justify-end mb-3">
                     <button id="generatePaymentBtn" onclick="generatePaymentDetails()" class="flex items-center space-x-2 bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 transform hover:scale-[1.02] shadow-md">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.32 14.28a1 1 0 01-1.41 1.41A6 6 0 1113 7.64a1 1 0 011.85-.75l.17.42A8 8 0 1010 18a8 8 0 000-16zm.18-1.42a1 1 0 00-.81.25l-.23.23a1 1 0 00.7.35l.11-.01.1-.03a1 1 0 00.7-.35zM9 10a1 1 0 100-2 1 1 0 000 2z"/></svg>
-                        <span>✨ แนะนำรายละเอียดการชำระเงิน</span>
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8.32 14.28a1 1 0 01-1.41 1.41A6 6 0 1113 7.64a1 1 0 011.85-.75l.17.42A8 8 0 1010 18a8 8 0 000-16zm.18-1.42a1 1 0 00-.81.25l-.23.23a1 1 0 00.7.35l.11-.01.1-.03a1 1 0 00.7-.35zM9 10a1 1 0 100-2 1 1 0 000 2z"/></svg>
+                        <span>✨ แนะนำรายละเอียดการชำระเงิน (AI)</span>
                     </button>
                 </div>
-                
                 <div class="space-y-3">
-                    <textarea id="paymentDetail" rows="2" placeholder="รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150"></textarea>
+                    <textarea id="paymentDetail" rows="2" placeholder="เงื่อนไข (เช่น: มัดจำ 50%)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150"></textarea>
                     <input id="bankName" type="text" placeholder="ชื่อธนาคาร" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
                     <input id="accountNumber" type="text" placeholder="เลขที่บัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
                     <input id="accountName" type="text" placeholder="ชื่อบัญชี" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 transition duration-150">
@@ -186,7 +196,7 @@
             <!-- ปุ่มสร้างใบเสนอราคา -->
             <div class="flex justify-center">
                 <button onclick="generateQuotation()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl transition duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-100">
-                    สร้างใบเสนอราคา
+                    สร้างใบเสนอราคา (Preview)
                 </button>
             </div>
         </div>
@@ -195,28 +205,27 @@
         <!-- VIEW 2: RECEIPT FORM (ใบเสร็จรับเงิน) -->
         <!-- ========================================================================= -->
         <div id="receiptView" class="view-content hidden">
-             <!-- ข้อมูลลูกค้าและวันที่ -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                 <div class="bg-gray-50 p-4 rounded-lg border">
                     <h3 class="font-semibold mb-2 text-blue-600">ข้อมูลลูกค้า</h3>
-                    <input type="text" id="rCustomerName" placeholder="ชื่อลูกค้า/หน่วยงาน" value="ชื่อลูกค้า/หน่วยงาน" class="w-full mb-2 p-2 border rounded-lg transition duration-150">
-                    <textarea id="rCustomerAddress" placeholder="ที่อยู่ลูกค้า" class="w-full p-2 border rounded-lg resize-none h-12 transition duration-150">ที่อยู่ลูกค้า (ระบุเองได้)</textarea>
-                    <input type="text" id="rCustomerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ถ้ามี)" class="w-full mt-2 p-2 border rounded-lg transition duration-150">
+                    <input type="text" id="rCustomerName" placeholder="ชื่อลูกค้า/หน่วยงาน" class="w-full mb-2 p-2 border rounded-lg">
+                    <textarea id="rCustomerAddress" placeholder="ที่อยู่ลูกค้า" class="w-full p-2 border rounded-lg resize-none h-12"></textarea>
+                    <input type="text" id="rCustomerTaxId" placeholder="เลขประจำตัวผู้เสียภาษี (ถ้ามี)" class="w-full mt-2 p-2 border rounded-lg">
                 </div>
                 <div class="bg-gray-50 p-4 rounded-lg border flex flex-col justify-between">
                     <div>
                         <h3 class="font-semibold mb-2 text-blue-600">รายละเอียดใบเสร็จ</h3>
                         <div class="flex justify-between mb-2">
-                            <label for="receiptNo" class="font-medium text-gray-700 w-1/3">เลขที่:</label>
-                            <input type="text" id="receiptNo" placeholder="REC-YYYYMM-001" value="REC-202410-001" class="w-2/3 p-2 border rounded-lg text-right transition duration-150">
+                            <label class="font-medium text-gray-700 w-1/3">เลขที่:</label>
+                            <input type="text" id="receiptNo" value="REC-202410-001" class="w-2/3 p-2 border rounded-lg text-right">
                         </div>
                         <div class="flex justify-between mb-2">
-                            <label for="receiptDate" class="font-medium text-gray-700 w-1/3">วันที่:</label>
-                            <input type="date" id="receiptDate" class="w-2/3 p-2 border rounded-lg text-right transition duration-150">
+                            <label class="font-medium text-gray-700 w-1/3">วันที่:</label>
+                            <input type="date" id="receiptDate" class="w-2/3 p-2 border rounded-lg text-right">
                         </div>
                         <div class="flex justify-between">
-                            <label for="paymentMethod" class="font-medium text-gray-700 w-1/3">วิธีการชำระ:</label>
-                            <select id="paymentMethod" class="w-2/3 p-2 border rounded-lg bg-white text-right transition duration-150">
+                            <label class="font-medium text-gray-700 w-1/3">วิธีชำระ:</label>
+                            <select id="paymentMethod" class="w-2/3 p-2 border rounded-lg bg-white text-right">
                                 <option value="เงินสด">เงินสด</option>
                                 <option value="โอนเงิน">โอนเงิน</option>
                                 <option value="บัตรเครดิต">บัตรเครดิต</option>
@@ -226,17 +235,13 @@
                 </div>
             </div>
 
-            <!-- ปุ่มดึงข้อมูลจากใบเสนอราคา -->
             <div class="no-print flex justify-end mb-4">
-                <button onclick="populateReceiptFromQuotation()" class="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg transition duration-150 transform hover:scale-[1.02] shadow-md">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
-                      <path fill-rule="evenodd" d="M15.312 11.424a1.05 1.05 0 01-.06 1.06l-1.636 1.73a.87.87 0 00-.21 1.077c.433.864.137 2.01-.727 2.443L9.61 18.995c-1.488.744-3.328-.31-3.665-1.928l-.055-.251c-.125-.63.26-1.25.89-1.375l2.497-.499a.87.87 0 00.707-.29l1.96-2.185a1.5 1.5 0 000-2.072l-1.96-2.185a.87.87 0 00-.707-.29l-2.497-.499c-.63-.125-1.015-.745-.89-1.375l.056-.251c.337-1.618 2.177-2.672 3.665-1.928l4.08 2.04c.864.433 1.16 1.579.727 2.443a.87.87 0 00-.21 1.077l1.636 1.73a1.05 1.05 0 01-.06 1.06z" clip-rule="evenodd" />
-                    </svg>
+                <button onclick="populateReceiptFromQuotation()" class="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded-lg shadow-md">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M15.312 11.424a1.05 1.05 0 01-.06 1.06l-1.636 1.73a.87.87 0 00-.21 1.077c.433.864.137 2.01-.727 2.443L9.61 18.995c-1.488.744-3.328-.31-3.665-1.928l-.055-.251c-.125-.63.26-1.25.89-1.375l2.497-.499a.87.87 0 00.707-.29l1.96-2.185a1.5 1.5 0 000-2.072l-1.96-2.185a.87.87 0 00-.707-.29l-2.497-.499c-.63-.125-1.015-.745-.89-1.375l.056-.251c.337-1.618 2.177-2.672 3.665-1.928l4.08 2.04c.864.433 1.16 1.579.727 2.443a.87.87 0 00-.21 1.077l1.636 1.73a1.05 1.05 0 01-.06 1.06z" clip-rule="evenodd" /></svg>
                     <span>ดึงรายการจากใบเสนอราคา</span>
                 </button>
             </div>
             
-            <!-- ตารางรายการสินค้า/บริการ -->
             <div class="overflow-x-auto mb-6">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-blue-50">
@@ -245,17 +250,14 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-5/12">รายการ</th>
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">จำนวน</th>
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">ราคา/หน่วย</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">รวม (บาท)</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-2/12">รวม</th>
                             <th class="px-1 py-3 w-1/12 no-print"></th>
                         </tr>
                     </thead>
-                    <tbody id="receiptItemTableBody" class="bg-white divide-y divide-gray-100 text-sm">
-                        <!-- รายการสินค้าจะถูกเพิ่มด้วย JavaScript ที่นี่ -->
-                    </tbody>
+                    <tbody id="receiptItemTableBody" class="bg-white divide-y divide-gray-100 text-sm"></tbody>
                 </table>
             </div>
             
-            <!-- ตัวเลือก VAT สำหรับใบเสร็จ (เพิ่มใหม่) -->
             <div class="flex justify-end mb-4 no-print">
                 <div class="bg-blue-50 p-3 rounded-lg border border-blue-200 shadow-sm">
                     <span class="font-bold text-gray-700 block mb-2 text-sm">ตัวเลือกภาษี (VAT 7%):</span>
@@ -272,248 +274,210 @@
                 </div>
             </div>
 
-            <!-- ปุ่มควบคุม Receipt -->
             <div class="no-print mt-6 flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-                <button onclick="addItemRowReceipt('', 1, 0)" class="px-6 py-3 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition duration-150">
-                    + เพิ่มรายการสินค้า/บริการ (Manual)
-                </button>
-                <button onclick="generateReceipt()" class="px-8 py-3 bg-blue-600 text-white text-lg font-bold rounded-lg shadow-xl hover:bg-blue-700 transition duration-150">
-                    สร้างและพิมพ์ใบเสร็จรับเงิน
-                </button>
+                <button onclick="addItemRowReceipt('', 1, 0)" class="px-6 py-3 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600">+ เพิ่มรายการ (Manual)</button>
+                <button onclick="generateReceipt()" class="px-8 py-3 bg-blue-600 text-white text-lg font-bold rounded-lg shadow-xl hover:bg-blue-700">สร้างใบเสร็จรับเงิน</button>
             </div>
         </div>
-        
-
     </div>
 
-    <!-- Modal/Popup สำหรับ Preview ใบเสนอราคา -->
+    <!-- Modal: Saved Quotations List -->
+    <div id="savedListModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="p-6 border-b flex justify-between items-center">
+                <h3 class="text-2xl font-bold text-gray-800">ประวัติใบเสนอราคา (Cloud)</h3>
+                <button onclick="closeModal(null, 'savedList')" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
+            </div>
+            <div id="savedListContainer" class="p-6 overflow-y-auto flex-1 space-y-2 bg-gray-50">
+                <!-- รายการจะถูกโหลดมาที่นี่ -->
+                <p class="text-center text-gray-500 mt-4">กำลังโหลดข้อมูล...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Preview Quotation -->
     <div id="quotationModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'quotation')">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
-            
-            <!-- Modal Header และปุ่มควบคุม -->
-            <div class="modal-hidden-on-print flex justify-between items-center p-4 md:p-6 border-b border-gray-200 bg-indigo-50 rounded-t-xl">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8" onclick="event.stopPropagation()">
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 bg-indigo-50 rounded-t-xl border-b">
                 <h3 class="text-2xl font-bold text-indigo-800">พรีวิวใบเสนอราคา</h3>
-                <button onclick="closeModal(null, 'quotation')" class="text-gray-600 hover:text-red-500 transition duration-150 text-3xl leading-none font-sans">&times;</button>
+                <button onclick="closeModal(null, 'quotation')" class="text-gray-600 hover:text-red-500 text-3xl">&times;</button>
             </div>
-            
-            <!-- Modal Body: แสดงใบเสนอราคา -->
             <div id="quotationPreview" class="p-2 overflow-y-auto max-h-[85vh]">
-                <div id="quotation-output">
-                    <!-- เนื้อหาใบเสนอราคาจะถูกสร้างขึ้นที่นี่ -->
-                </div>
+                <div id="quotation-output"></div>
             </div>
-
-            <!-- Modal Footer: ปุ่มดาวน์โหลด/แคปหน้าจอ -->
-            <div class="modal-hidden-on-print p-4 md:p-6 border-t border-gray-200 flex flex-wrap justify-center gap-4 bg-indigo-50 rounded-b-xl">
-                <button onclick="downloadPDF('quotation')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
-                    ⬇️ ดาวน์โหลดเป็น PDF
-                </button>
-                <button onclick="captureScreen('quotation')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
-                    📷 แคปหน้าจอ (Copy Image)
-                </button>
-                <div id="quotationCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกรูปภาพแล้ว!</div>
+            <div class="modal-hidden-on-print p-4 border-t bg-indigo-50 rounded-b-xl flex justify-center gap-4">
+                <button onclick="downloadPDF('quotation')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">⬇️ PDF</button>
+                <button onclick="captureScreen('quotation')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg">📷 Copy Image</button>
+                <div id="quotationCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกแล้ว!</div>
             </div>
         </div>
     </div>
 
-
-    <!-- Modal/Popup สำหรับ Preview ใบเสร็จรับเงิน -->
+    <!-- Modal: Preview Receipt -->
     <div id="receiptModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50 overflow-y-auto" onclick="closeModal(event, 'receipt')">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8 transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
-            
-            <!-- Modal Header และปุ่มควบคุม -->
-            <div class="modal-hidden-on-print flex justify-between items-center p-4 md:p-6 border-b border-gray-200 bg-blue-50 rounded-t-xl">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8" onclick="event.stopPropagation()">
+            <div class="modal-hidden-on-print flex justify-between items-center p-4 bg-blue-50 rounded-t-xl border-b">
                 <h3 class="text-2xl font-bold text-blue-800">พรีวิวใบเสร็จรับเงิน</h3>
-                <button onclick="closeModal(null, 'receipt')" class="text-gray-600 hover:text-red-500 transition duration-150 text-3xl leading-none font-sans">&times;</button>
+                <button onclick="closeModal(null, 'receipt')" class="text-gray-600 hover:text-red-500 text-3xl">&times;</button>
             </div>
-            
-            <!-- Modal Body: แสดงใบเสร็จ -->
             <div id="receiptPreview" class="p-2 overflow-y-auto max-h-[85vh]">
-                <div id="receipt-output">
-                    <!-- เนื้อหาใบเสร็จรับเงินจะถูกสร้างขึ้นที่นี่ -->
-                </div>
+                <div id="receipt-output"></div>
             </div>
-
-            <!-- Modal Footer: ปุ่มดาวน์โหลด/แคปหน้าจอ -->
-            <div class="modal-hidden-on-print p-4 md:p-6 border-t border-gray-200 flex flex-wrap justify-center gap-4 bg-blue-50 rounded-b-xl">
-                <button onclick="downloadPDF('receipt')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
-                    ⬇️ ดาวน์โหลดเป็น PDF
-                </button>
-                <button onclick="captureScreen('receipt')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 shadow-md">
-                    📷 แคปหน้าจอ (Copy Image)
-                </button>
-                <div id="receiptCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกรูปภาพแล้ว!</div>
+            <div class="modal-hidden-on-print p-4 border-t bg-blue-50 rounded-b-xl flex justify-center gap-4">
+                <button onclick="downloadPDF('receipt')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg">⬇️ PDF</button>
+                <button onclick="captureScreen('receipt')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg">📷 Copy Image</button>
+                <div id="receiptCopyMessage" class="hidden text-sm text-green-700 font-medium self-center">คัดลอกแล้ว!</div>
             </div>
         </div>
     </div>
 
     <script>
-        // Global variables for product configuration
-        const products = {
-            1: { 
-                id: 1, 
-                name: 'ฉากกั้น PVC', 
-                code: 'SN390-10', 
-                option1: 'เปิดข้าง', 
-                option2: 'เปิดกลาง' 
-            },
-            2: { 
-                id: 2, 
-                name: 'ม่านม้วน Blackout', 
-                code: 'RBP-3901', 
-                option1: 'ปรับซ้าย', 
-                option2: 'ปรับขวา' 
+        // --- Firebase Setup ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let currentUser = null;
+
+        // Authentication Anonymous
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                currentUser = user;
+                console.log("Signed in as:", user.uid);
+            } else {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    auth.signInWithCustomToken(__initial_auth_token).catch(e => console.error(e));
+                } else {
+                    auth.signInAnonymously().catch(e => console.error("Auth failed:", e));
+                }
             }
+        });
+
+        // --- App Logic ---
+        const products = {
+            1: { id: 1, name: 'ฉากกั้น PVC', code: 'SN390-10', option1: 'เปิดข้าง', option2: 'เปิดกลาง' },
+            2: { id: 2, name: 'ม่านม้วน Blackout', code: 'RBP-3901', option1: 'ปรับซ้าย', option2: 'ปรับขวา' }
         };
 
-        let nextRowId = 1; // Global counter for unique row IDs (Quotation)
-        let receiptItemCounter = 0; // Global counter for Receipt rows
+        let nextRowId = 1;
+        let receiptItemCounter = 0;
 
-        // -----------------------------------------------------------
-        // 0. General UI and Utility Functions
-        // -----------------------------------------------------------
-        
-        /**
-         * สลับการแสดงผลระหว่างฟอร์มใบเสนอราคาและใบเสร็จรับเงิน
-         * @param {string} viewName - 'quotation' หรือ 'receipt'
-         */
+        // --- UI Utilities ---
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toastMessage');
+            msg.textContent = message;
+            toast.classList.remove('bg-gray-800', 'bg-red-600', 'translate-x-full', 'opacity-0');
+            toast.classList.add(isError ? 'bg-red-600' : 'bg-gray-800', 'translate-x-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full', 'opacity-0');
+                toast.classList.remove('translate-x-0', 'opacity-100');
+            }, 3000);
+        }
+
         function switchView(viewName) {
-            const views = {
-                quotation: document.getElementById('quotationView'),
-                receipt: document.getElementById('receiptView')
-            };
-            const buttons = {
-                quotation: document.getElementById('btnQuotation'),
-                receipt: document.getElementById('btnReceipt')
-            };
-
+            const views = { quotation: 'quotationView', receipt: 'receiptView' };
+            const buttons = { quotation: 'btnQuotation', receipt: 'btnReceipt' };
+            
             for (const key in views) {
+                const el = document.getElementById(views[key]);
+                const btn = document.getElementById(buttons[key]);
                 if (key === viewName) {
-                    views[key].classList.remove('hidden');
-                    buttons[key].classList.add('active-tab');
-                    buttons[key].classList.remove('inactive-tab');
-                    // เมื่อสลับไปหน้าใบเสร็จ ให้ดึงข้อมูลเบื้องต้นจากใบเสนอราคามาใส่ในช่อง input
-                    if (viewName === 'receipt') {
-                        syncCustomerInfoToReceipt();
-                    }
+                    el.classList.remove('hidden');
+                    btn.classList.add('active-tab');
+                    btn.classList.remove('inactive-tab');
+                    if (viewName === 'receipt') syncCustomerInfoToReceipt();
                 } else {
-                    views[key].classList.add('hidden');
-                    buttons[key].classList.remove('active-tab');
-                    buttons[key].classList.add('inactive-tab');
+                    el.classList.add('hidden');
+                    btn.classList.remove('active-tab');
+                    btn.classList.add('inactive-tab');
                 }
             }
         }
 
-        /**
-         * ดึงข้อมูลลูกค้าจากใบเสนอราคามาใส่ในช่องกรอกของใบเสร็จ (เพื่อให้ง่ายต่อการกรอก)
-         */
+        function toggleSection(id) {
+            const el = document.getElementById(id);
+            el.classList.toggle('hidden');
+        }
+
         function syncCustomerInfoToReceipt() {
             document.getElementById('rCustomerName').value = document.getElementById('customerName').value;
             document.getElementById('rCustomerAddress').value = document.getElementById('customerAddress').value;
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // ตั้งค่าวันที่ปัจจุบันในช่องกรอกวันที่
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('quotationDate').value = today;
             document.getElementById('receiptDate').value = today;
-            
-            // Add initial rows for Quotation products
-            addItemRow(1, true); 
+            // Init rows
+            addItemRow(1, true);
             addItemRow(2, true);
-
-            // Add initial rows for Receipt (Placeholder before importing)
             addItemRowReceipt('ค่าบริการติดตั้งและค่าสินค้า', 1, 1000.00);
         });
-        
-        /**
-         * ปิด Modal
-         * @param {Event} event - event object จากการคลิก
-         * @param {string} type - 'quotation' หรือ 'receipt'
-         */
+
         function closeModal(event, type) {
-            const modalId = type === 'quotation' ? 'quotationModal' : 'receiptModal';
-            // ถ้ามีการส่ง event มา และ target ของ event คือตัว modal เอง (คลิกพื้นหลัง) 
+            const ids = { quotation: 'quotationModal', receipt: 'receiptModal', savedList: 'savedListModal' };
+            const modalId = ids[type];
             if (!event || event.target.id === modalId) {
                 document.getElementById(modalId).style.display = 'none';
             }
         }
 
-        // -----------------------------------------------------------
-        // 1. Quotation Form Functions
-        // -----------------------------------------------------------
+        function openSavedListModal() {
+            document.getElementById('savedListModal').style.display = 'flex';
+            fetchSavedQuotations();
+        }
 
-        /**
-         * สร้าง HTML สำหรับแถวสินค้าใบเสนอราคา
-         */
+        // --- Quotation Logic ---
         function createProductRowHtml(productId, rowId, initialValues = {}) {
             const p = products[productId];
-            const isInitial = document.getElementById(`product-items-${productId}`).childElementCount === 0;
-
+            const isInitial = document.getElementById(`product-items-${productId}`).childElementCount === 0 && !initialValues.force;
+            
             const width = initialValues.width || '';
             const height = initialValues.height || '';
             const qty = initialValues.qty || 1;
             const price = initialValues.price || '';
             const option = initialValues.option || p.option1;
 
-
             return `
-                <div id="item-row-${rowId}" data-product-id="${productId}" class="grid grid-cols-6 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 items-center">
-                    
-                    <!-- Width, Height -->
+                <div id="item-row-${rowId}" data-product-id="${productId}" class="grid grid-cols-6 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 items-center mb-2">
                     <input type="number" data-field="width" placeholder="กว้าง (ซม.)" value="${width}" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
                     <input type="number" data-field="height" placeholder="สูง (ซม.)" value="${height}" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
-                    
-                    <!-- Option -->
                     <select data-field="option" class="col-span-2 md:col-span-1 p-2 border rounded-lg" onchange="calculateQuotationTotal()">
                         <option value="${p.option1}" ${option === p.option1 ? 'selected' : ''}>${p.option1}</option>
                         <option value="${p.option2}" ${option === p.option2 ? 'selected' : ''}>${p.option2}</option>
                     </select>
-
-                    <!-- Quantity -->
-                    <input type="number" data-field="qty" placeholder="จำนวน (ชุด)" class="col-span-3 md:col-span-1 p-2 border rounded-lg" min="1" value="${qty}" onchange="calculateQuotationTotal()">
-                    
-                    <!-- Price -->
-                    <input type="number" data-field="price" placeholder="ราคา/ชุด (บาท)" class="col-span-3 md:col-span-1 p-2 border rounded-lg" value="${price}" onchange="calculateQuotationTotal()">
-                    
-                    <!-- Remove Button -->
+                    <input type="number" data-field="qty" placeholder="จำนวน" class="col-span-3 md:col-span-1 p-2 border rounded-lg" min="1" value="${qty}" onchange="calculateQuotationTotal()">
+                    <input type="number" data-field="price" placeholder="ราคา/ชุด" class="col-span-3 md:col-span-1 p-2 border rounded-lg" value="${price}" onchange="calculateQuotationTotal()">
                     <div class="col-span-6 md:col-span-1 flex justify-end">
-                        <button type="button" onclick="removeRow(${rowId})" 
-                            class="w-full md:w-auto p-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-150 transform hover:scale-105 ${isInitial ? 'opacity-0 pointer-events-none' : ''}">
-                            ลบ
-                        </button>
+                        <button type="button" onclick="removeRow(${rowId})" class="w-full md:w-auto p-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition duration-150 ${isInitial ? 'opacity-0 pointer-events-none' : ''}">ลบ</button>
                     </div>
                 </div>
             `;
         }
 
-        /**
-         * เพิ่มแถวสินค้าในใบเสนอราคา
-         */
         function addItemRow(productId, isInitialLoad = false, initialValues = {}) {
             const container = document.getElementById(`product-items-${productId}`);
-            if (!container) return;
-
             const newRowId = nextRowId++;
             const newRowHtml = createProductRowHtml(productId, newRowId, initialValues);
             container.insertAdjacentHTML('beforeend', newRowHtml);
-            
             if (!isInitialLoad) {
                 calculateQuotationTotal();
                 const newRowElement = document.getElementById(`item-row-${newRowId}`);
-                newRowElement.querySelector('button').classList.remove('opacity-0', 'pointer-events-none');
+                if(newRowElement.querySelector('button')) newRowElement.querySelector('button').classList.remove('opacity-0', 'pointer-events-none');
             }
         }
 
-        /**
-         * ลบแถวสินค้าในใบเสนอราคา
-         */
         function removeRow(rowId) {
             const rowElement = document.getElementById(`item-row-${rowId}`);
             if (rowElement) {
                 const productId = rowElement.getAttribute('data-product-id');
                 rowElement.remove();
-                // ถ้าลบหมดแล้ว ให้เพิ่มแถวเริ่มต้นกลับเข้าไป 1 แถวเพื่อป้องกัน Container ว่าง
                 if (document.getElementById(`product-items-${productId}`).childElementCount === 0) {
                      addItemRow(parseInt(productId), true);
                 }
@@ -521,29 +485,25 @@
             }
         }
 
-        /**
-         * คำนวณราคารวมในใบเสนอราคา
-         */
         function calculateQuotationTotal() {
             let subtotal = 0;
-            const allItemRows = document.querySelectorAll('#productContainer [data-product-id]');
-            
-            allItemRows.forEach(rowEl => {
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(rowEl => {
                 const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
                 const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
                 subtotal += (qty * price);
             });
-
             document.getElementById('quotationSubtotalDisplay').textContent = subtotal.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
             return subtotal;
         }
 
-        /**
-         * ดึงข้อมูลทั้งหมดสำหรับสร้างใบเสนอราคา
-         */
+        // --- Data Handling (Save/Load) ---
+
         function getQuotationFormData() {
-            // อ่านค่า Radio Button สำหรับ VAT
             const vatOption = document.querySelector('input[name="quotationVatOption"]:checked').value;
+            
+            // Get Custom Codes
+            const code1 = document.getElementById('product-code-1').value;
+            const code2 = document.getElementById('product-code-2').value;
             
             const data = {
                 sellerName: document.getElementById('sellerName').value,
@@ -556,30 +516,34 @@
                 bankName: document.getElementById('bankName').value,
                 accountNumber: document.getElementById('accountNumber').value,
                 accountName: document.getElementById('accountName').value,
-                vatOption: vatOption, // ส่งค่าตัวเลือก VAT ไปด้วย
+                vatOption: vatOption,
+                customCodes: { 1: code1, 2: code2 }, // Save custom codes
                 items: []
             };
 
-            const allItemRows = document.querySelectorAll('#productContainer [data-product-id]');
-            
-            allItemRows.forEach(rowEl => {
+            document.querySelectorAll('#productContainer [data-product-id]').forEach(rowEl => {
                 const productId = parseInt(rowEl.getAttribute('data-product-id'));
                 const p = products[productId];
-
                 const qty = parseFloat(rowEl.querySelector(`[data-field="qty"]`).value) || 0;
                 const price = parseFloat(rowEl.querySelector(`[data-field="price"]`).value) || 0;
                 const width = parseFloat(rowEl.querySelector(`[data-field="width"]`).value) || 0;
                 const height = parseFloat(rowEl.querySelector(`[data-field="height"]`).value) || 0;
                 const option = rowEl.querySelector(`[data-field="option"]`).value;
+                
+                // Use dynamic code
+                const currentCode = document.getElementById(`product-code-${productId}`).value;
 
-                if (qty > 0 && price > 0) {
-                    data.items.push({
+                // Save even if empty to restore state correctly, but only if meaningful
+                if (true) { 
+                     data.items.push({
+                        productId: productId, // Important for restoring
                         name: p.name,
-                        code: p.code,
+                        code: currentCode, // Save dynamic code
                         description: `${p.name} ${width > 0 && height > 0 ? 'ขนาด: ' + width + ' x ' + height + ' ซม. ' : ''}(${option})`,
                         qty: qty,
                         unitPrice: price,
-                        total: qty * price
+                        total: qty * price,
+                        raw: { width, height, option, qty, price } // Save raw inputs
                     });
                 }
             });
@@ -588,465 +552,332 @@
             return data;
         }
 
-        /**
-         * สร้าง HTML สำหรับใบเสนอราคา (ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก)
-         */
-        function createQuotationHtml(data) {
-            if (data.items.length === 0) {
-                return '<div class="text-center p-10 text-xl text-red-500">กรุณากรอกรายการสินค้าอย่างน้อย 1 รายการ</div>';
+        async function saveQuotationToCloud() {
+            if (!currentUser) { showToast('กรุณารอสักครู่ ระบบกำลังเชื่อมต่อ...', true); return; }
+            
+            const name = prompt("ตั้งชื่อบันทึก (เช่น ชื่อลูกค้า):", document.getElementById('customerName').value);
+            if (name === null) return; // Cancelled
+
+            showLoading(true);
+            const formData = getQuotationFormData();
+            const savePayload = {
+                ...formData,
+                title: name || 'ฉบับร่าง (ไม่มีชื่อ)',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                userId: currentUser.uid
+            };
+
+            try {
+                await db.collection('artifacts').doc(appId)
+                        .collection('users').doc(currentUser.uid)
+                        .collection('quotations').add(savePayload);
+                showToast('บันทึกข้อมูลสำเร็จ!');
+            } catch (error) {
+                console.error("Save error:", error);
+                showToast('เกิดข้อผิดพลาดในการบันทึก', true);
+            } finally {
+                showLoading(false);
             }
+        }
 
-            const formattedDate = new Date(data.quotationDate).toLocaleDateString('th-TH', { 
-                day: 'numeric', month: 'long', year: 'numeric' 
-            });
+        async function fetchSavedQuotations() {
+             if (!currentUser) return;
+             const container = document.getElementById('savedListContainer');
+             container.innerHTML = '<p class="text-center text-gray-500">กำลังโหลด...</p>';
 
+             try {
+                 // No orderBy due to index limitations in instructions, sort in memory
+                 const snapshot = await db.collection('artifacts').doc(appId)
+                                          .collection('users').doc(currentUser.uid)
+                                          .collection('quotations').get();
+                
+                 const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 // Sort by createdAt desc
+                 docs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+                 if (docs.length === 0) {
+                     container.innerHTML = '<p class="text-center text-gray-500">ยังไม่มีประวัติการบันทึก</p>';
+                     return;
+                 }
+
+                 container.innerHTML = '';
+                 docs.forEach(doc => {
+                     const dateStr = doc.createdAt ? new Date(doc.createdAt.seconds * 1000).toLocaleDateString('th-TH') : '-';
+                     const item = document.createElement('div');
+                     item.className = 'bg-white p-4 rounded-lg border shadow-sm hover:shadow-md transition flex justify-between items-center';
+                     item.innerHTML = `
+                        <div>
+                            <h4 class="font-bold text-gray-800">${doc.title}</h4>
+                            <p class="text-xs text-gray-500">วันที่บันทึก: ${dateStr} | ลูกค้า: ${doc.customerName || '-'}</p>
+                            <p class="text-xs text-gray-500">ยอดรวม: ${doc.subtotal?.toLocaleString()} บาท</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="loadQuotationToForm('${doc.id}')" class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-200 text-sm font-bold">โหลด</button>
+                            <button onclick="deleteQuotation('${doc.id}')" class="bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 text-sm">ลบ</button>
+                        </div>
+                     `;
+                     // Attach data to element to avoid re-fetching
+                     item.dataset.jsonData = JSON.stringify(doc);
+                     container.appendChild(item);
+                 });
+
+             } catch (error) {
+                 console.error("Fetch error:", error);
+                 container.innerHTML = '<p class="text-center text-red-500">โหลดข้อมูลไม่สำเร็จ</p>';
+             }
+        }
+
+        function loadQuotationToForm(docId) {
+            // Find data in DOM to save a read
+            const listContainer = document.getElementById('savedListContainer');
+            const itemEl = Array.from(listContainer.children).find(el => el.querySelector(`button[onclick*="${docId}"]`));
+            if (!itemEl) return;
+            
+            const data = JSON.parse(itemEl.dataset.jsonData);
+            
+            if (!confirm(`ต้องการโหลดข้อมูล "${data.title}" มาแทนที่ข้อมูลปัจจุบันหรือไม่?`)) return;
+
+            showLoading(true);
+            try {
+                // Restore standard fields
+                document.getElementById('sellerName').value = data.sellerName || '';
+                document.getElementById('sellerInfo').value = data.sellerInfo || '';
+                document.getElementById('sellerTaxId').value = data.sellerTaxId || '';
+                document.getElementById('customerName').value = data.customerName || '';
+                document.getElementById('customerAddress').value = data.customerAddress || '';
+                document.getElementById('quotationDate').value = data.quotationDate || '';
+                document.getElementById('paymentDetail').value = data.paymentDetail || '';
+                document.getElementById('bankName').value = data.bankName || '';
+                document.getElementById('accountNumber').value = data.accountNumber || '';
+                document.getElementById('accountName').value = data.accountName || '';
+
+                // Restore VAT
+                if (data.vatOption) {
+                    const radios = document.getElementsByName('quotationVatOption');
+                    radios.forEach(r => r.checked = (r.value === data.vatOption));
+                }
+                
+                // Restore Custom Codes
+                if (data.customCodes) {
+                    if (data.customCodes[1]) document.getElementById('product-code-1').value = data.customCodes[1];
+                    if (data.customCodes[2]) document.getElementById('product-code-2').value = data.customCodes[2];
+                }
+
+                // Restore Items
+                // 1. Clear existing
+                document.getElementById('product-items-1').innerHTML = '';
+                document.getElementById('product-items-2').innerHTML = '';
+                
+                // 2. Add rows
+                if (data.items && data.items.length > 0) {
+                    data.items.forEach(item => {
+                        // Use saved raw data or fallback
+                        const initVals = item.raw || { width: '', height: '', qty: item.qty, price: item.unitPrice, option: '' };
+                        // Force allow deletion even for first item if it comes from load
+                        initVals.force = true; 
+                        addItemRow(item.productId, false, initVals);
+                    });
+                } else {
+                    // If no items saved, reset to defaults
+                    addItemRow(1, true);
+                    addItemRow(2, true);
+                }
+
+                closeModal(null, 'savedList');
+                showToast('โหลดข้อมูลเรียบร้อยแล้ว');
+            } catch (e) {
+                console.error(e);
+                showToast('เกิดข้อผิดพลาดในการโหลด', true);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function deleteQuotation(docId) {
+            if (!confirm('ต้องการลบข้อมูลนี้ใช่หรือไม่?')) return;
+            showLoading(true);
+            try {
+                await db.collection('artifacts').doc(appId)
+                        .collection('users').doc(currentUser.uid)
+                        .collection('quotations').doc(docId).delete();
+                fetchSavedQuotations(); // Reload list
+                showToast('ลบข้อมูลสำเร็จ');
+            } catch (e) {
+                showToast('ลบไม่สำเร็จ', true);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // --- Generate Output Logic ---
+        function createQuotationHtml(data) {
+            const formattedDate = new Date(data.quotationDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+            
+            // Filter only valid items (must have price > 0)
+            const validItems = data.items.filter(i => i.qty > 0 && i.unitPrice > 0);
+            
             let itemsHtml = '';
-            data.items.forEach((item, index) => {
+            validItems.forEach((item, index) => {
                 itemsHtml += `
                     <tr class="h-10 text-sm">
                         <td class="border border-gray-300 px-3 text-center w-10">${index + 1}</td>
                         <td class="border border-gray-300 px-3 font-semibold">${item.name} <span class="text-xs text-gray-500">(${item.code})</span></td>
                         <td class="border border-gray-300 px-3">${item.description}</td>
-                        <td class="border border-gray-300 px-3 text-center w-20">${item.qty.toLocaleString('th-TH', { maximumFractionDigits: 0 })}</td>
+                        <td class="border border-gray-300 px-3 text-center w-20">${item.qty.toLocaleString()}</td>
                         <td class="border border-gray-300 px-3 text-center w-20">ชุด</td>
-                        <td class="border border-gray-300 px-3 text-right w-24">${item.unitPrice.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
-                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${item.total.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
+                        <td class="border border-gray-300 px-3 text-right w-24">${item.unitPrice.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
+                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${item.total.toLocaleString('th-TH', {minimumFractionDigits: 2})}</td>
                     </tr>
                 `;
             });
 
-            // การคำนวณ VAT ตามตัวเลือกที่เลือก
-            const subtotalFormatted = data.subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            const subtotalFormatted = data.subtotal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             let vat = 0;
             let vatHtml = '';
-            
             if (data.vatOption === 'include') {
-                // คิด VAT 7% (เพิ่มจากราคาขาย)
                 vat = data.subtotal * 0.07;
-                const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-                vatHtml = `
-                    <div class="flex justify-between p-2 border-b border-gray-800">
-                        <span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span>
-                        <span class="text-sm">${vatFormatted}</span>
-                    </div>
-                `;
-            } else {
-                // ไม่คิด VAT (แสดงเป็น 0.00 หรือซ่อนแถวก็ได้ ในที่นี้เลือกแสดงเป็น 0.00 เพื่อความชัดเจน)
-                // หรือจะเลือกไม่แสดงบรรทัด VAT เลยก็ได้ 
-                /* // ถ้าอยากแสดง 0.00 ให้เปิด comment นี้
-                vatHtml = `
-                    <div class="flex justify-between p-2 border-b border-gray-800">
-                         <span class="text-sm">ภาษีมูลค่าเพิ่ม (ยกเว้น)</span>
-                         <span class="text-sm">0.00</span>
-                    </div>
-                `;
-                */
-               // ถ้าไม่คิด VAT ไม่ต้องแสดงบรรทัด VAT ให้เปลืองเนื้อที่
-               vatHtml = '';
+                vatHtml = `<div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">ภาษีมูลค่าเพิ่ม 7% (VAT)</span><span class="text-sm">${vat.toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>`;
             }
 
             const netTotal = data.subtotal + vat;
-            const netTotalFormatted = netTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
-            const htmlContent = `
+            return `
                 <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
-                    
-                    <!-- Header: ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก -->
                     <header class="text-center border-b-2 border-gray-800 pb-4">
                         <h1 class="text-3xl font-bold mb-1">ใบเสนอราคา (QUOTATION)</h1>
-                        <p class="text-xl font-semibold">${data.sellerName || '_________________________________'}</p>
-                        <!-- ใช้ whitespace-pre-wrap เพื่อให้ textarea ที่มีบรรทัดขึ้นใหม่แสดงผลถูกต้อง -->
-                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo || '_________________________________'}</p>
+                        <p class="text-xl font-semibold">${data.sellerName}</p>
+                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo}</p>
                     </header>
-                    
-                    <!-- Customer and Date Info -->
                     <div class="flex justify-between text-sm">
                         <div class="w-1/2 pr-4 border border-gray-300 p-2 rounded-lg">
-                            <p class="font-bold">เรียน: ${data.customerName || '_________________________________'}</p>
-                            <p>ที่อยู่: ${data.customerAddress || '_________________________________'}</p>
+                            <p class="font-bold">เรียน: ${data.customerName}</p>
+                            <p>ที่อยู่: ${data.customerAddress}</p>
                         </div>
                         <div class="w-1/3 pl-4">
-                            <p><strong>เลขที่:</strong> QUO-${new Date().getFullYear()}${new Date().getMonth() + 1}${new Date().getDate()}</p>
+                            <p><strong>เลขที่:</strong> QUO-${new Date().getFullYear()}${new Date().getMonth()+1}${new Date().getDate()}</p>
                             <p><strong>วันที่:</strong> ${formattedDate}</p>
-                            <p><strong>อ้างอิง:</strong> ______________________</p>
                         </div>
                     </div>
-
-                    <!-- Item Table -->
-                    <div class="overflow-x-auto custom-scroll">
+                    <div class="overflow-x-auto">
                         <table class="w-full border-collapse">
-                            <thead>
-                                <tr class="bg-gray-100 text-sm font-bold h-12">
-                                    <td class="border border-gray-300 px-3 text-center">ลำดับ</td>
-                                    <td class="border border-gray-300 px-3 text-left">รายการ</td>
-                                    <td class="border border-gray-300 px-3 text-left">รายละเอียด</td>
-                                    <td class="border border-gray-300 px-3 text-center">จำนวน</td>
-                                    <td class="border border-gray-300 px-3 text-center">หน่วย</td>
-                                    <td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td>
-                                    <td class="border border-gray-300 px-3 text-right">ราคารวม</td>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${itemsHtml}
-                                <!-- Row padding if items < 5 -->
-                                ${'<tr><td class="border border-gray-300 h-10"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - data.items.length))}
-                            </tbody>
+                            <thead><tr class="bg-gray-100 text-sm font-bold h-12"><td class="border border-gray-300 px-3 text-center">ลำดับ</td><td class="border border-gray-300 px-3">รายการ</td><td class="border border-gray-300 px-3">รายละเอียด</td><td class="border border-gray-300 px-3 text-center">จำนวน</td><td class="border border-gray-300 px-3 text-center">หน่วย</td><td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td><td class="border border-gray-300 px-3 text-right">ราคารวม</td></tr></thead>
+                            <tbody>${itemsHtml}${'<tr><td class="border border-gray-300 h-10"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - validItems.length))}</tbody>
                         </table>
                     </div>
-                    
-                    <!-- Summary and Payment -->
                     <div class="flex justify-between items-start">
                         <div class="w-3/5 pr-4 space-y-3">
-                            <div class="border border-gray-400 p-3 rounded-lg">
-                                <p class="font-bold text-lg text-indigo-700 mb-2">รายละเอียดการชำระเงิน</p>
-                                <p class="text-sm">${data.paymentDetail || 'ชำระเต็มจำนวนภายใน 7 วัน นับจากวันที่ในใบเสนอราคา'}</p>
-                            </div>
-
-                            <div class="border border-gray-400 p-3 rounded-lg bg-gray-50">
-                                <p class="font-bold">โอนเงินเข้าบัญชี:</p>
-                                <p class="text-sm">ชื่อธนาคาร: ${data.bankName || 'ธนาคารตัวอย่าง'}</p>
-                                <p class="text-sm">เลขที่บัญชี: ${data.accountNumber || 'XXX-X-XXXXX-X'}</p>
-                                <p class="text-sm">ชื่อบัญชี: ${data.accountName || 'บริษัท ตัวอย่าง จำกัด'}</p>
-                            </div>
+                            <div class="border border-gray-400 p-3 rounded-lg"><p class="font-bold text-lg text-indigo-700 mb-2">การชำระเงิน</p><p class="text-sm">${data.paymentDetail}</p></div>
+                            <div class="border border-gray-400 p-3 rounded-lg bg-gray-50"><p class="font-bold">บัญชีธนาคาร:</p><p class="text-sm">${data.bankName} - ${data.accountNumber} (${data.accountName})</p></div>
                         </div>
-
                         <div class="w-2/5 border border-gray-800">
-                            <div class="flex justify-between p-2 border-b border-gray-800">
-                                <span class="text-sm">รวมราคาสินค้า</span>
-                                <span class="text-sm">${subtotalFormatted}</span>
-                            </div>
-                            
-                            <!-- แทรกส่วนแสดงผล VAT ที่สร้างไว้ข้างบน -->
+                            <div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">รวมราคาสินค้า</span><span class="text-sm">${subtotalFormatted}</span></div>
                             ${vatHtml}
-
-                            <div class="flex justify-between p-2 bg-gray-200">
-                                <span class="text-lg font-bold">รวมทั้งสิ้น</span>
-                                <span class="text-lg font-bold text-red-600">${netTotalFormatted} บาท</span>
-                            </div>
+                            <div class="flex justify-between p-2 bg-gray-200"><span class="text-lg font-bold">รวมทั้งสิ้น</span><span class="text-lg font-bold text-red-600">${netTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span></div>
                         </div>
                     </div>
-
-                    <!-- Signatures -->
                     <div class="flex justify-between pt-10 text-sm">
-                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
-                            <p>ผู้เสนอราคา</p>
-                            <p>(_________________________)</p>
-                        </div>
-                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
-                            <p>ผู้อนุมัติ / ผู้สั่งซื้อ</p>
-                            <p>(_________________________)</p>
-                        </div>
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2"><p>ผู้เสนอราคา</p><p>(_________________________)</p></div>
+                        <div class="w-5/12 text-center border-t border-gray-400 pt-2"><p>ผู้อนุมัติ</p><p>(_________________________)</p></div>
                     </div>
-
-                    <!-- Footer -->
-                    <footer class="text-center text-xs text-gray-500 pt-10">
-                        <p>ใบเสนอราคานี้มีอายุ 30 วันนับจากวันที่ออกใบเสนอราคา</p>
-                    </footer>
                 </div>
             `;
-            return htmlContent;
         }
 
-        /**
-         * แสดง Modal และสร้างใบเสนอราคา
-         */
         function generateQuotation() {
             const data = getQuotationFormData();
-            const modal = document.getElementById('quotationModal');
-            const output = document.getElementById('quotation-output');
-            
-            output.innerHTML = createQuotationHtml(data);
-            
-            modal.style.display = 'flex';
-            
+            // Check for items with price > 0
+            if(data.items.filter(i => i.qty > 0 && i.unitPrice > 0).length === 0) { alert('กรุณากรอกรายการสินค้าและราคาให้ครบถ้วน'); return; }
+            document.getElementById('quotation-output').innerHTML = createQuotationHtml(data);
+            document.getElementById('quotationModal').style.display = 'flex';
             document.getElementById('quotationCopyMessage').classList.add('hidden');
         }
 
-        // -----------------------------------------------------------
-        // 2. Receipt Form Functions
-        // -----------------------------------------------------------
-        
-        /**
-         * สร้างแถวใหม่สำหรับรายการสินค้าใบเสร็จ
-         */
+        // --- Receipt Logic ---
         function addItemRowReceipt(description = '', quantity = 1, price = 0) {
             receiptItemCounter++;
-            const itemTableBody = document.getElementById('receiptItemTableBody');
+            const tbody = document.getElementById('receiptItemTableBody');
             const row = document.createElement('tr');
-            row.className = 'hover:bg-gray-50 transition duration-100';
-            
-            // ใช้ toFixed(2) กับ price เพื่อให้ค่าเริ่มต้นดูดี
-            const initialPrice = price.toFixed(2);
-            
             row.innerHTML = `
                 <td class="px-3 py-2 text-center text-gray-500">${receiptItemCounter}</td>
-                <td class="px-6 py-2">
-                    <input type="text" value="${description}" placeholder="รายละเอียดรายการ" class="w-full item-description p-1 border rounded focus:ring-blue-500 transition duration-150">
-                </td>
-                <td class="px-6 py-2">
-                    <input type="number" value="${quantity}" min="1" class="w-full item-quantity p-1 border rounded text-right transition duration-150">
-                </td>
-                <td class="px-6 py-2">
-                    <input type="number" value="${initialPrice}" min="0" step="0.01" class="w-full item-price p-1 border rounded text-right transition duration-150">
-                </td>
-                <td class="px-6 py-2 text-right">
-                    <span class="item-total font-semibold text-gray-700">0.00</span>
-                </td>
-                <td class="px-1 py-2 text-center no-print">
-                    <button type="button" class="remove-item-btn text-red-500 hover:text-red-700 transition duration-150 p-1 rounded">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5 0a1 1 0 10-2 0v6a1 1 0 102 0V8z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                </td>
+                <td class="px-6 py-2"><input type="text" value="${description}" class="w-full item-description p-1 border rounded"></td>
+                <td class="px-6 py-2"><input type="number" value="${quantity}" min="1" class="w-full item-quantity p-1 border rounded text-right"></td>
+                <td class="px-6 py-2"><input type="number" value="${price}" min="0" step="0.01" class="w-full item-price p-1 border rounded text-right"></td>
+                <td class="px-6 py-2 text-right"><span class="item-total font-semibold text-gray-700">0.00</span></td>
+                <td class="px-1 py-2 text-center no-print"><button type="button" class="remove-item-btn text-red-500 p-1">ลบ</button></td>
             `;
-
-            const inputsToListen = [
-                row.querySelector('.item-quantity'), 
-                row.querySelector('.item-price'), 
-                row.querySelector('.item-description')
-            ];
-
-            inputsToListen.forEach(input => {
-                input.addEventListener('input', calculateReceiptTotals);
-            });
-
-            row.querySelector('.remove-item-btn').addEventListener('click', () => {
-                row.remove();
-                reindexReceiptRows();
-                calculateReceiptTotals();
-            });
-
-            itemTableBody.appendChild(row);
-            calculateReceiptTotals(); // Update totals immediately
-        }
-        
-        /**
-         * ดึงรายการสินค้าที่ได้รับการคำนวณราคาแล้วจากใบเสนอราคามาใส่ในใบเสร็จ
-         */
-        function populateReceiptFromQuotation() {
-            const quotationData = getQuotationFormData();
-            const itemTableBody = document.getElementById('receiptItemTableBody');
-            
-            if (quotationData.items.length === 0) {
-                 // ใช้ Modal แทน alert เพื่อให้ UX ดีขึ้น
-                 alert('ไม่พบรายการสินค้าที่กรอกข้อมูลสมบูรณ์ในใบเสนอราคา (ต้องมีจำนวนและราคา > 0)');
-                 return;
-            }
-
-            // 1. Clear existing items
-            itemTableBody.innerHTML = '';
-            receiptItemCounter = 0;
-
-            // 2. Populate new items from quotation
-            quotationData.items.forEach(item => {
-                // สำหรับใบเสร็จ จะรวมจำนวน x ราคาต่อหน่วย เป็น "รวมทั้งสิ้น"
-                addItemRowReceipt(item.description, 1, item.total);
-            });
-            
-            // 3. Sync VAT Option (ตั้งค่าใบเสร็จให้เหมือนใบเสนอราคา)
-            if (quotationData.vatOption) {
-                const radios = document.getElementsByName('receiptVatOption');
-                radios.forEach(r => {
-                    if (r.value === quotationData.vatOption) r.checked = true;
-                });
-            }
-
-            // 4. Update customer info (just in case they haven't switched view yet)
-            syncCustomerInfoToReceipt();
-            
-            calculateReceiptTotals(); // Recalculate with new items and VAT setting
-            
-            alert(`ดึงรายการสินค้า ${quotationData.items.length} รายการจากใบเสนอราคามายังใบเสร็จเรียบร้อยแล้ว!`);
+            const update = () => calculateReceiptTotals();
+            row.querySelector('.item-quantity').addEventListener('input', update);
+            row.querySelector('.item-price').addEventListener('input', update);
+            row.querySelector('.remove-item-btn').addEventListener('click', () => { row.remove(); reindexReceiptRows(); update(); });
+            tbody.appendChild(row);
+            update();
         }
 
-
-        /**
-         * จัดเรียงหมายเลขลำดับในใบเสร็จใหม่
-         */
         function reindexReceiptRows() {
-            const itemTableBody = document.getElementById('receiptItemTableBody');
-            const rows = itemTableBody.querySelectorAll('tr');
             receiptItemCounter = 0;
-            rows.forEach((row, index) => {
-                receiptItemCounter = index + 1;
+            document.querySelectorAll('#receiptItemTableBody tr').forEach((row, i) => {
+                receiptItemCounter = i + 1;
                 row.querySelector('td:first-child').textContent = receiptItemCounter;
             });
         }
 
-        /**
-         * คำนวณราคารวมทั้งหมดในใบเสร็จ (อัปเดตตามตัวเลือก VAT)
-         */
         function calculateReceiptTotals() {
-            const itemTableBody = document.getElementById('receiptItemTableBody');
-            const rows = itemTableBody.querySelectorAll('tr');
             let subtotal = 0;
-            
-            // อ่านค่า Radio Button VAT ของใบเสร็จ
             const vatOption = document.querySelector('input[name="receiptVatOption"]:checked').value;
-            const VAT_RATE = vatOption === 'include' ? 0.07 : 0;
-
-            rows.forEach(row => {
-                const quantity = parseFloat(row.querySelector('.item-quantity').value) || 0;
-                const price = parseFloat(row.querySelector('.item-price').value) || 0;
-                const total = quantity * price;
-
-                row.querySelector('.item-total').textContent = total.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+            document.querySelectorAll('#receiptItemTableBody tr').forEach(row => {
+                const q = parseFloat(row.querySelector('.item-quantity').value) || 0;
+                const p = parseFloat(row.querySelector('.item-price').value) || 0;
+                const total = q * p;
+                row.querySelector('.item-total').textContent = total.toLocaleString('th-TH', {minimumFractionDigits: 2});
                 subtotal += total;
             });
-
-            const vat = subtotal * VAT_RATE;
-            const grandTotal = subtotal + vat;
-
-            return { subtotal, vat, grandTotal, vatOption };
+            const vat = vatOption === 'include' ? subtotal * 0.07 : 0;
+            return { subtotal, vat, grandTotal: subtotal + vat, vatOption };
         }
 
-        /**
-         * สร้าง HTML สำหรับใบเสร็จรับเงิน
-         */
+        function populateReceiptFromQuotation() {
+            const qData = getQuotationFormData();
+            // Filter valid items for receipt as well
+            const validItems = qData.items.filter(i => i.qty > 0 && i.unitPrice > 0);
+            
+            if(validItems.length === 0) { alert('ไม่พบข้อมูลสินค้าที่มีราคาในใบเสนอราคา'); return; }
+            
+            document.getElementById('receiptItemTableBody').innerHTML = '';
+            receiptItemCounter = 0;
+            validItems.forEach(item => addItemRowReceipt(item.description, 1, item.total));
+            
+            if (qData.vatOption) {
+                document.getElementsByName('receiptVatOption').forEach(r => r.checked = (r.value === qData.vatOption));
+            }
+            syncCustomerInfoToReceipt();
+            calculateReceiptTotals();
+            showToast('ดึงข้อมูลเรียบร้อย');
+        }
+
         function createReceiptHtml(data) {
             const totals = calculateReceiptTotals();
-            const { subtotal, vat, grandTotal, vatOption } = totals;
-
-            const subtotalFormatted = subtotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-            
-            // จัดการแสดงผล VAT ใน HTML
-            let vatRowHtml = '';
-            if (vatOption === 'include') {
-                 const vatFormatted = vat.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-                 vatRowHtml = `
-                    <div class="flex justify-between p-2 border-b border-gray-800">
-                        <span class="text-sm">ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-                        <span class="text-sm">${vatFormatted}</span>
-                    </div>
-                 `;
-            } else {
-                // ไม่แสดงบรรทัด VAT ถ้าเลือก "ไม่คิด VAT"
-                vatRowHtml = '';
-            }
-
-            const grandTotalFormatted = grandTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-            const formattedDate = new Date(data.receiptDate).toLocaleDateString('th-TH', { 
-                day: 'numeric', month: 'long', year: 'numeric' 
-            });
-            
-            // ดึง HTML ของตารางรายการสินค้าที่กรอกในฟอร์ม
-            let tableBodyHtml = '';
-            const itemTableBody = document.getElementById('receiptItemTableBody');
-            const rows = itemTableBody.querySelectorAll('tr');
-
-            rows.forEach((row, index) => {
-                const description = row.querySelector('.item-description').value;
-                const quantity = row.querySelector('.item-quantity').value;
-                const unitPrice = row.querySelector('.item-price').value;
-                const total = row.querySelector('.item-total').textContent;
-
-                tableBodyHtml += `
-                    <tr class="h-8 text-sm">
-                        <td class="border border-gray-300 px-3 text-center w-10">${index + 1}</td>
-                        <td class="border border-gray-300 px-3">${description}</td>
-                        <td class="border border-gray-300 px-3 text-right w-20">${quantity}</td>
-                        <td class="border border-gray-300 px-3 text-right w-24">${parseFloat(unitPrice).toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
-                        <td class="border border-gray-300 px-3 text-right w-28 font-bold">${total}</td>
-                    </tr>
-                `;
+            let rowsHtml = '';
+            document.querySelectorAll('#receiptItemTableBody tr').forEach((row, i) => {
+                const d = row.querySelector('.item-description').value;
+                const q = row.querySelector('.item-quantity').value;
+                const p = parseFloat(row.querySelector('.item-price').value).toLocaleString('th-TH', {minimumFractionDigits: 2});
+                const t = row.querySelector('.item-total').textContent;
+                rowsHtml += `<tr class="h-8 text-sm"><td class="border px-3 text-center">${i+1}</td><td class="border px-3">${d}</td><td class="border px-3 text-right">${q}</td><td class="border px-3 text-right">${p}</td><td class="border px-3 text-right font-bold">${t}</td></tr>`;
             });
 
+            let vatRow = totals.vatOption === 'include' ? `<div class="flex justify-between p-2 border-b border-gray-800"><span class="text-sm">VAT 7%</span><span class="text-sm">${totals.vat.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span></div>` : '';
 
-            const htmlContent = `
+            return `
                 <div class="space-y-6 text-gray-800" style="font-family: 'Sarabun', sans-serif;">
-                    
-                    <!-- Header: ใช้ข้อมูลผู้ขายที่ผู้ใช้กรอก -->
-                    <header class="text-center border-b-2 border-gray-800 pb-4">
-                        <h1 class="text-3xl font-bold mb-1">ใบเสร็จรับเงิน (RECEIPT)</h1>
-                        <p class="text-xl font-semibold">${data.sellerName || '_________________________________'}</p>
-                        <p class="text-sm whitespace-pre-wrap">${data.sellerInfo || '_________________________________'}</p>
-                        <p class="text-sm">เลขประจำตัวผู้เสียภาษี: ${data.sellerTaxId || '_________________________________'}</p>
-                    </header>
-                    
-                    <!-- Customer and Date Info -->
-                    <div class="flex justify-between text-sm">
-                        <div class="w-1/2 pr-4 border border-gray-300 p-2 rounded-lg">
-                            <p class="font-bold">ลูกค้า: ${data.rCustomerName || '_________________________________'}</p>
-                            <p>ที่อยู่: ${data.rCustomerAddress || '_________________________________'}</p>
-                            <p>เลขผู้เสียภาษี: ${data.rCustomerTaxId || '_________________________________'}</p>
-                        </div>
-                        <div class="w-1/3 pl-4">
-                            <p><strong>เลขที่:</strong> ${data.receiptNo}</p>
-                            <p><strong>วันที่:</strong> ${formattedDate}</p>
-                            <p><strong>วิธีการชำระ:</strong> ${data.paymentMethod}</p>
-                        </div>
-                    </div>
-
-                    <!-- Item Table -->
-                    <div class="overflow-x-auto custom-scroll">
-                        <table class="w-full border-collapse">
-                            <thead>
-                                <tr class="bg-gray-100 text-sm font-bold h-10">
-                                    <td class="border border-gray-300 px-3 text-center">ลำดับ</td>
-                                    <td class="border border-gray-300 px-3 text-left">รายการ</td>
-                                    <td class="border border-gray-300 px-3 text-right">จำนวน</td>
-                                    <td class="border border-gray-300 px-3 text-right">ราคา/หน่วย</td>
-                                    <td class="border border-gray-300 px-3 text-right">รวม (บาท)</td>
-                                </tr>
-                            </thead>
-                            <tbody class="text-sm">
-                                ${tableBodyHtml}
-                                <!-- Add padding rows if needed for visual spacing -->
-                                ${'<tr><td class="border border-gray-300 h-8"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td><td class="border border-gray-300"></td></tr>'.repeat(Math.max(0, 5 - receiptItemCounter))}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <!-- Summary and Signatures -->
-                    <div class="flex justify-between items-start pt-4">
-                        <div class="w-3/5 pr-4 space-y-3">
-                            <p class="text-sm border border-gray-400 p-2 rounded-lg">
-                                ** หมายเหตุ: ได้รับเงินเรียบร้อยแล้ว **
-                            </p>
-                        </div>
-
-                        <div class="w-2/5 border border-gray-800">
-                            <div class="flex justify-between p-2 border-b border-gray-800">
-                                <span class="text-sm">รวมเป็นเงิน</span>
-                                <span class="text-sm">${subtotalFormatted}</span>
-                            </div>
-                            
-                            <!-- VAT Row -->
-                            ${vatRowHtml}
-
-                            <div class="flex justify-between p-2 bg-gray-200">
-                                <span class="text-lg font-bold">ยอดเงินสุทธิ</span>
-                                <span class="text-lg font-bold text-blue-600">${grandTotalFormatted} บาท</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Signatures -->
-                    <div class="flex justify-between pt-10 text-sm">
-                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
-                            <p>ผู้รับเงิน</p>
-                            <p>(_________________________)</p>
-                        </div>
-                        <div class="w-5/12 text-center border-t border-gray-400 pt-2">
-                            <p>ผู้จ่ายเงิน</p>
-                            <p>(_________________________)</p>
-                        </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <footer class="text-center text-xs text-gray-500 pt-10">
-                        <p>ขอบคุณที่ใช้บริการ</p>
-                    </footer>
+                    <header class="text-center border-b-2 border-gray-800 pb-4"><h1 class="text-3xl font-bold">ใบเสร็จรับเงิน</h1><p class="text-xl">${data.sellerName}</p><p class="text-sm">${data.sellerInfo}</p><p class="text-sm">TAX ID: ${data.sellerTaxId}</p></header>
+                    <div class="flex justify-between text-sm"><div class="w-1/2 border p-2 rounded"><p>ลูกค้า: ${data.rCustomerName}</p><p>ที่อยู่: ${data.rCustomerAddress}</p><p>TAX ID: ${data.rCustomerTaxId}</p></div><div class="w-1/3 pl-4"><p>เลขที่: ${data.receiptNo}</p><p>วันที่: ${new Date(data.receiptDate).toLocaleDateString('th-TH')}</p><p>ชำระโดย: ${data.paymentMethod}</p></div></div>
+                    <table class="w-full border-collapse"><thead><tr class="bg-gray-100 text-sm font-bold h-10"><td class="border px-3 text-center">#</td><td class="border px-3">รายการ</td><td class="border px-3 text-right">จำนวน</td><td class="border px-3 text-right">ราคา</td><td class="border px-3 text-right">รวม</td></tr></thead><tbody>${rowsHtml}${'<tr><td class="border h-8"></td><td class="border"></td><td class="border"></td><td class="border"></td><td class="border"></td></tr>'.repeat(Math.max(0, 5 - receiptItemCounter))}</tbody></table>
+                    <div class="flex justify-between pt-4"><div class="w-3/5 border p-2 rounded text-sm">** ได้รับเงินเรียบร้อยแล้ว **</div><div class="w-2/5 border border-gray-800"><div class="flex justify-between p-2 border-b"><span class="text-sm">รวมเงิน</span><span>${totals.subtotal.toLocaleString('th-TH', {minimumFractionDigits: 2})}</span></div>${vatRow}<div class="flex justify-between p-2 bg-gray-200"><span class="text-lg font-bold">สุทธิ</span><span class="text-lg font-bold text-blue-600">${totals.grandTotal.toLocaleString('th-TH', {minimumFractionDigits: 2})} บาท</span></div></div></div>
+                    <div class="flex justify-between pt-10 text-sm"><div class="w-5/12 text-center border-t pt-2">ผู้รับเงิน</div><div class="w-5/12 text-center border-t pt-2">ผู้จ่ายเงิน</div></div>
                 </div>
             `;
-            return htmlContent;
         }
 
-
-        /**
-         * แสดง Modal และสร้างใบเสร็จรับเงิน
-         */
         function generateReceipt() {
             const data = {
                 sellerName: document.getElementById('sellerName').value,
@@ -1059,162 +890,56 @@
                 receiptDate: document.getElementById('receiptDate').value,
                 paymentMethod: document.getElementById('paymentMethod').value,
             };
-
-            const modal = document.getElementById('receiptModal');
-            const output = document.getElementById('receipt-output');
-            
-            output.innerHTML = createReceiptHtml(data);
-            
-            modal.style.display = 'flex';
-            
-            document.getElementById('receiptCopyMessage').classList.add('hidden');
+            document.getElementById('receipt-output').innerHTML = createReceiptHtml(data);
+            document.getElementById('receiptModal').style.display = 'flex';
         }
 
-        // -----------------------------------------------------------
-        // 3. File Management Functions (PDF/Capture)
-        // -----------------------------------------------------------
-
-        /**
-         * ดาวน์โหลดเอกสารเป็น PDF
-         * @param {string} type - 'quotation' หรือ 'receipt'
-         */
+        // --- Export Tools ---
         function downloadPDF(type) {
-            const outputId = type === 'quotation' ? 'quotation-output' : 'receipt-output';
-            const output = document.getElementById(outputId);
+            const id = type === 'quotation' ? 'quotation-output' : 'receipt-output';
             const { jsPDF } = window.jspdf;
-
             const pdf = new jsPDF('p', 'pt', 'a4');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const margin = 20;
-
-            html2canvas(output, { 
-                scale: 2, 
-                scrollY: -window.scrollY 
-            }).then(canvas => {
-                const imgData = canvas.toDataURL('image/jpeg', 1.0);
-                const imgWidth = pdfWidth - (2 * margin);
-                const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-                pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
-                
-                const filename = `${type === 'quotation' ? 'ใบเสนอราคา' : 'ใบเสร็จรับเงิน'}_${new Date().toISOString().split('T')[0]}.pdf`;
-                pdf.save(filename);
+            html2canvas(document.getElementById(id), { scale: 2, scrollY: -window.scrollY }).then(canvas => {
+                const w = pdf.internal.pageSize.getWidth();
+                const h = (canvas.height * w) / canvas.width;
+                pdf.addImage(canvas.toDataURL('image/jpeg', 1.0), 'JPEG', 0, 0, w, h);
+                pdf.save(`${type}_${new Date().toISOString().slice(0,10)}.pdf`);
             });
         }
 
-        /**
-         * แคปหน้าจอ (Copy Image to Clipboard)
-         * @param {string} type - 'quotation' หรือ 'receipt'
-         */
         function captureScreen(type) {
-            const outputId = type === 'quotation' ? 'quotation-output' : 'receipt-output';
-            const messageId = type === 'quotation' ? 'quotationCopyMessage' : 'receiptCopyMessage';
-            const output = document.getElementById(outputId);
-            
-            html2canvas(output, { 
-                scale: 2, 
-                scrollY: -window.scrollY 
-            }).then(canvas => {
-                canvas.toBlob(blob => {
-                    if (navigator.clipboard && navigator.clipboard.write) {
-                        const item = new ClipboardItem({ "image/png": blob });
-                        navigator.clipboard.write([item]).then(() => {
-                            const msg = document.getElementById(messageId);
-                            msg.classList.remove('hidden');
-                            setTimeout(() => msg.classList.add('hidden'), 3000);
-                        }).catch(err => {
-                            console.error('ไม่สามารถคัดลอกรูปภาพได้:', err);
-                        });
-                    } else {
-                        console.error('เบราว์เซอร์ไม่รองรับการคัดลอกรูปภาพอัตโนมัติ');
-                    }
-                }, 'image/png');
+            const id = type === 'quotation' ? 'quotation-output' : 'receipt-output';
+            html2canvas(document.getElementById(id), { scale: 2, scrollY: -window.scrollY }).then(c => {
+                c.toBlob(b => navigator.clipboard.write([new ClipboardItem({"image/png": b})]).then(() => {
+                    const msg = document.getElementById(type+'CopyMessage');
+                    msg.classList.remove('hidden'); setTimeout(()=>msg.classList.add('hidden'), 3000);
+                }));
             });
         }
-        
-        // -----------------------------------------------------------
-        // 4. Gemini API Setup (Quotation only)
-        // -----------------------------------------------------------
-        const apiKey = "";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
-        async function fetchWithExponentialBackoff(url, options, maxRetries = 5, delay = 1000) {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const response = await fetch(url, options);
-                    if (response.status === 429) {
-                        if (i < maxRetries - 1) {
-                            await new Promise(resolve => setTimeout(resolve, delay * (2 ** i) + Math.random() * 1000));
-                            continue;
-                        }
-                    }
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response;
-                } catch (error) {
-                    console.error(`Fetch attempt ${i + 1} failed:`, error);
-                    if (i < maxRetries - 1) {
-                        await new Promise(resolve => setTimeout(resolve, delay * (2 ** i) + Math.random() * 1000));
-                    } else {
-                        throw new Error("API request failed after maximum retries.");
-                    }
-                }
-            }
-        }
-        
+        // --- AI Logic ---
+        const apiKey = ""; 
         async function generatePaymentDetails() {
             const btn = document.getElementById('generatePaymentBtn');
-            const paymentDetailEl = document.getElementById('paymentDetail');
-            const originalHtml = btn.innerHTML; 
-
-            btn.disabled = true;
-            paymentDetailEl.placeholder = 'กำลังสร้างข้อความ... โปรดรอสักครู่';
-            btn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>กำลังสร้าง...</span>`;
-
+            const box = document.getElementById('paymentDetail');
+            const oldHtml = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = '<span>กำลังคิด...</span>';
+            box.placeholder = 'AI กำลังทำงาน...';
+            
             try {
-                const customerName = document.getElementById('customerName').value || 'ลูกค้า';
-
-                const systemPrompt = `คุณคือผู้เชี่ยวชาญด้านการเงินและการบัญชี โปรดสร้าง "รายละเอียดการชำระเงิน" ที่เป็นทางการ สุภาพ และครอบคลุมเป็นภาษาไทย โดยเน้นเรื่องเงื่อนไขการชำระเงิน (เช่น การแบ่งชำระ, วันที่ครบกำหนด) และวิธีชำระเงิน (การโอนเงิน) ห้ามใช้ Markdown หรือหัวข้อ`;
-                
-                const userQuery = `สร้างรายละเอียดการชำระเงินสำหรับใบเสนอราคาที่ส่งถึง "${customerName}" โดยให้มีรายละเอียดดังนี้: 1. ต้องชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการ 2. ชำระส่วนที่เหลือ 50% หลังจากการติดตั้งเสร็จสิ้นและตรวจรับงาน 3. ใบเสนอราคานี้มีผลภายใน 30 วันนับจากวันที่ออกใบเสนอราคา`;
-
-                const payload = {
-                    contents: [{ parts: [{ text: userQuery }] }],
-                    systemInstruction: { parts: [{ text: systemPrompt }] },
-                    config: { temperature: 0.4 }
-                };
-
-                const response = await fetchWithExponentialBackoff(apiUrl, {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `สร้างข้อความเงื่อนไขการชำระเงินสั้นๆ ทางการ สำหรับลูกค้า ${document.getElementById('customerName').value || 'ทั่วไป'} (มัดจำ 50%)` }] }]
+                    })
                 });
-
-                const result = await response.json();
-                const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                if (generatedText) {
-                    paymentDetailEl.value = generatedText.trim();
-                } else {
-                    console.error('Gemini API returned no text.', result);
-                    // Use a simple, non-blocking UI alert style
-                    const message = 'ไม่สามารถสร้างรายละเอียดได้ กรุณาลองใหม่ (API Error)';
-                    console.log(message);
-                }
-
-            } catch (error) {
-                console.error('Error generating payment details:', error);
-                 // Use a simple, non-blocking UI alert style
-                const message = 'เกิดข้อผิดพลาดในการเชื่อมต่อ API กรุณาตรวจสอบคอนโซล (Connection Error)';
-                console.log(message);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-                paymentDetailEl.placeholder = 'รายละเอียดการชำระเงิน (เช่น: ชำระ 50% ล่วงหน้า, ส่วนที่เหลือชำระหลังติดตั้ง)';
-            }
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if(text) box.value = text.trim();
+            } catch(e) { console.error(e); } 
+            finally { btn.disabled = false; btn.innerHTML = oldHtml; box.placeholder = 'เงื่อนไข...'; }
         }
     </script>
-
 </body>
 </html>
