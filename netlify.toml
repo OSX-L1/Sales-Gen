@@ -5,4 +5,4 @@
   # The build command (empty since this is a static HTML project)
   command = ""
 
-โปรดดาวน์โหลดไฟล์ ZIP ใหม่อีกครั้งจากไฟล์ `project_downloader.html` ที่ผมแก้ไขให้ล่าสุดนี้ แล้วลองอัปโหลดไปยัง GitHub/Netlify ได้เลยครับ! ปัญหาที่เคยเกิดขึ้นกับ Build System ของ Netlify ไม่น่าจะเกิดขึ้นซ้ำอีกแล้วครับ
+#โปรดดาวน์โหลดไฟล์ ZIP ใหม่อีกครั้งจากไฟล์ `project_downloader.html` ที่ผมแก้ไขให้ล่าสุดนี้ แล้วลองอัปโหลดไปยัง GitHub/Netlify ได้เลยครับ! ปัญหาที่เคยเกิดขึ้นกับ Build System ของ Netlify ไม่น่าจะเกิดขึ้นซ้ำอีกแล้วครับ
