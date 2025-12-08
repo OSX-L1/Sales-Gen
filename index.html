@@ -3,308 +3,481 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เครื่องมือจัดการเอกสารขาย (ใบเสนอราคา & ใบเสร็จ) + ระบบบันทึก</title>
+    <title>ระบบจัดการเอกสาร Bento Style</title>
     
     <!-- โหลด Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- โหลด Google Font Sarabun TH -->
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- โหลด Icons (FontAwesome) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <!-- โหลด Library สำหรับ PDF/Capture -->
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <!-- โหลด Firebase SDK (ใช้เวอร์ชัน compat เพื่อความง่ายในการใช้งานในไฟล์เดียว) -->
+    <!-- โหลด Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sarabun: ['Sarabun', 'sans-serif'],
+                    },
+                    colors: {
+                        bento: {
+                            bg: '#F3F4F6', // สีพื้นหลังหลัก
+                            card: '#FFFFFF', // สีการ์ด
+                            hover: '#F9FAFB',
+                            primary: '#6366F1', // Indigo
+                            secondary: '#8B5CF6', // Purple
+                            accent: '#EC4899', // Pink
+                        }
+                    },
+                    boxShadow: {
+                        'bento': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'bento-hover': '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                        'paper': '0 2px 15px rgba(0, 0, 0, 0.08)',
+                    }
+                }
+            }
+        }
+    </script>
+
     <style>
-        body { font-family: 'Sarabun', sans-serif; }
+        body { 
+            font-family: 'Sarabun', sans-serif; 
+            background-color: #F3F4F6;
+            height: 100vh;
+            overflow: hidden; /* ซ่อน Scrollbar ของ Body เพื่อใช้ Scroll ใน Grid แทน */
+        }
         
-        /* กำหนดสไตล์สำหรับเอกสาร Desktop/A4 (Default) */
-        .document-container {
-            width: 21cm; /* A4 width */
-            min-height: 29.7cm; /* A4 height */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #D1D5DB; 
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9CA3AF; 
+        }
+
+        /* Document Paper Styles */
+        .document-paper {
+            width: 21cm; 
+            min-height: 29.7cm; 
             background: white;
-            margin: 20px auto;
-            transition: all 0.3s ease-in-out; /* เพิ่มความนุ่มนวลในการเปลี่ยนโหมด */
+            transition: all 0.3s ease-in-out;
+            margin-bottom: 2rem;
         }
 
-        /* Mobile View Mode Styles (เมื่อคลาสนี้ถูกเพิ่มโดย JS) */
-        .document-container.mobile-mode-active {
-            width: 100% !important; /* Override fixed width */
-            min-height: auto !important; /* No fixed height */
-            box-shadow: none !important; /* Remove shadow */
-            margin: 0 !important; /* Remove center margin */
-            padding: 1rem !important; /* Smaller padding for mobile */
-        }
-        
-        /* ปรับ padding ของ Main container เมื่ออยู่ในโหมด Mobile เพื่อให้เอกสารเต็มจอ */
-        main.mobile-mode-active-padding {
-            padding: 0 !important; /* Remove main padding for full screen mobile */
-        }
-        
-        /* Adjust padding inside the document container when in mobile mode */
-        .document-container.mobile-mode-active > div:first-child {
-            padding: 1rem !important;
+        /* Mobile Adjustments */
+        @media (max-width: 1024px) {
+            body { height: auto; overflow: auto; }
+            .bento-grid { display: flex; flex-direction: column; height: auto; }
+            .mobile-stack { height: auto !important; overflow: visible !important; }
         }
 
-        /* ซ่อนรายการเอกสารเมื่อพิมพ์ */
+        .document-paper.mobile-mode {
+            width: 100% !important;
+            min-height: auto !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 1.5rem !important;
+            border-radius: 0 !important;
+        }
+
+        /* Print Styles */
         @media print {
-            .sidebar-controls, .controls-container, .document-footer, .action-buttons {
-                display: none !important;
-            }
-            .document-container {
-                margin: 0;
+            body { background: white; height: auto; overflow: visible; }
+            .bento-ui-element { display: none !important; }
+            .document-paper {
                 box-shadow: none;
+                margin: 0;
                 width: 100%;
-                min-height: 100vh;
+                page-break-after: always;
+            }
+            #mainWorkspace {
+                padding: 0;
+                background: white;
+                overflow: visible;
             }
         }
-        /* เพื่อซ่อนปุ่มหมุนใน input type=number */
+
+        /* Hide Number Spinners */
         input[type="number"]::-webkit-inner-spin-button, 
         input[type="number"]::-webkit-outer-spin-button { 
             -webkit-appearance: none; margin: 0; 
         }
-        /* สไตล์สำหรับฟอร์มในหน้าหลัก */
-        .item-row input, .item-row select, .item-row textarea {
-            padding: 4px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 0.875rem; /* text-sm */
+
+        /* Form Elements Clean Style */
+        .clean-input {
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .clean-input:hover { border-color: #E5E7EB; }
+        .clean-input:focus { 
+            border-color: #6366F1; 
+            outline: none; 
+            background-color: #F9FAFB;
         }
     </style>
 </head>
-<body class="bg-gray-50 flex flex-col lg:flex-row min-h-screen">
-    <div id="loadingOverlay" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center hidden">
-        <div class="text-white text-lg flex flex-col items-center">
-            <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span class="mt-2">กำลังโหลด...</span>
+<body class="p-4 lg:p-6 text-gray-700">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+            <span class="text-indigo-600 font-medium">กำลังโหลดข้อมูล...</span>
         </div>
     </div>
 
-    <!-- ส่วน Sidebar/Controls สำหรับ Mobile/Desktop -->
-    <div class="sidebar-controls bg-white p-4 w-full lg:w-72 lg:min-h-screen border-r border-gray-200 shadow-lg flex flex-col">
-        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">เอกสารที่บันทึกไว้</h2>
-        <div id="userIdDisplay" class="text-sm text-gray-600 mb-4 p-2 bg-gray-100 rounded-lg">
-            User ID: <span id="currentUserId" class="font-mono break-all text-blue-600">กำลังโหลด...</span>
-        </div>
-
-        <!-- รายการเอกสาร -->
-        <ul id="documentList" class="space-y-2 flex-grow overflow-y-auto pb-4">
-            <li class="text-gray-500 italic">ไม่มีเอกสาร</li>
-        </ul>
-
-        <!-- ปุ่มควบคุมหลัก -->
-        <div class="controls-container mt-4 pt-4 border-t border-gray-200 space-y-3">
-            <!-- ปุ่มสลับมุมมอง (Desktop/Mobile) -->
-            <button id="toggleViewModeBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md flex items-center justify-center">
-                <span id="viewModeIcon">💻</span>
-                <span class="ml-2" id="viewModeText">โหมดเดสก์ท็อป (A4)</span>
-            </button>
-            
-            <button id="newDocumentBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
-                <i class="fas fa-plus mr-2"></i> สร้างเอกสารใหม่
-            </button>
-            <button id="saveDocumentBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
-                <i class="fas fa-save mr-2"></i> บันทึกเอกสาร
-            </button>
-            <button id="previewDocumentBtn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
-                <i class="fas fa-eye mr-2"></i> แสดงตัวอย่างใบเสนอราคา
-            </button>
-            <button id="captureDocumentBtn" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
-                <i class="fas fa-camera mr-2"></i> แคปหน้าจอ (PNG)
-            </button>
-            <button id="printDocumentBtn" class="w-full bg-red-500 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 shadow-md">
-                <i class="fas fa-print mr-2"></i> พิมพ์ / สร้าง PDF
-            </button>
-            <div id="messageBox" class="p-3 bg-indigo-100 text-indigo-800 text-sm rounded-lg hidden transition duration-300"></div>
-        </div>
-    </div>
-
-    <!-- พื้นที่ทำงานหลักและเอกสาร -->
-    <main id="mainContainer" class="flex-grow p-4 lg:p-8 overflow-y-auto">
+    <!-- Main Grid Layout -->
+    <div id="appGrid" class="bento-grid grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 h-full w-full max-w-[1920px] mx-auto">
         
-        <!-- Document Container (A4 Mockup) -->
-        <div id="documentToCapture" class="document-container p-6 md:p-10 lg:p-12 shadow-xl">
-
-            <!-- Header and Type Selector -->
-            <div class="flex flex-col sm:flex-row justify-between items-start border-b-4 border-indigo-600 pb-4 mb-6">
-                <div class="flex flex-col">
-                    <input type="text" id="companyName" value="ชื่อบริษัท/ร้านค้าของคุณ" class="text-2xl sm:text-3xl font-bold mb-1 p-1" placeholder="ชื่อบริษัท">
-                    <textarea id="companyAddress" class="text-sm text-gray-600 w-full p-1 h-12 resize-none" placeholder="ที่อยู่และเบอร์โทรศัพท์"></textarea>
+        <!-- COLUMN 1: History & User (Left Panel) -->
+        <aside class="bento-ui-element col-span-1 lg:col-span-3 flex flex-col gap-4 lg:h-full mobile-stack">
+            <!-- User Profile Card -->
+            <div class="bg-white rounded-[2rem] p-6 shadow-bento flex flex-col justify-between shrink-0">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800 mb-1">Documents</h1>
+                    <p class="text-xs text-gray-400 font-light">จัดการใบเสนอราคาและใบเสร็จ</p>
                 </div>
-                <div class="mt-4 sm:mt-0 flex-shrink-0">
-                    <select id="documentType" class="text-xl font-bold text-center p-2 rounded-lg border-2 border-gray-300 bg-gray-100">
-                        <option value="ใบเสนอราคา">ใบเสนอราคา</option>
-                        <option value="ใบเสร็จรับเงิน">ใบเสร็จรับเงิน</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- Customer and Document Info -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 text-sm">
-                <div class="col-span-1 md:col-span-2 space-y-2 p-3 border rounded-lg bg-gray-50">
-                    <div class="flex items-center">
-                        <label class="w-24 font-semibold">ลูกค้า:</label>
-                        <input type="text" id="customerName" class="flex-grow p-1" placeholder="ชื่อลูกค้า/บริษัท">
-                    </div>
-                    <div class="flex items-start">
-                        <label class="w-24 font-semibold">ที่อยู่:</label>
-                        <textarea id="customerAddress" class="flex-grow p-1 h-10 resize-none" placeholder="ที่อยู่ลูกค้า"></textarea>
-                    </div>
-                    <div class="flex items-center">
-                        <label class="w-24 font-semibold">ติดต่อ:</label>
-                        <input type="text" id="customerContact" class="flex-grow p-1" placeholder="เบอร์โทร/อีเมล">
-                    </div>
-                </div>
-                <div class="col-span-1 space-y-2 p-3 border rounded-lg bg-gray-50">
-                    <div class="flex items-center">
-                        <label class="w-24 font-semibold">เลขที่:</label>
-                        <input type="text" id="documentNumber" class="flex-grow p-1" placeholder="QUO-001/2567">
-                    </div>
-                    <div class="flex items-center">
-                        <label class="w-24 font-semibold">วันที่:</label>
-                        <input type="date" id="documentDate" class="flex-grow p-1">
-                    </div>
-                    <div class="flex items-center">
-                        <label class="w-24 font-semibold">กำหนดชำระ:</label>
-                        <input type="date" id="dueDate" class="flex-grow p-1">
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shadow-lg">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <p class="text-xs text-gray-400">User ID</p>
+                            <p id="currentUserId" class="text-xs font-mono font-medium text-indigo-600 truncate">Connecting...</p>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Items Table Header (Updated to include Category/Dimensions) -->
-            <!-- ใช้ text-xs เพื่อให้ตารางแคบลงใน PDF/Preview -->
-            <div class="flex text-xs md:text-sm font-bold bg-indigo-600 text-white rounded-t-lg p-2 mt-8">
-                <span class="w-8 text-center">#</span>
-                <span class="w-28 text-center">หมวดหมู่</span>
-                <span class="w-16 text-center">รหัส</span>
-                <span class="flex-grow ml-2">รายละเอียด</span>
-                <span class="w-12 text-center">กว้าง</span>
-                <span class="w-12 text-center">สูง</span>
-                <span class="w-12 text-center">จำนวน</span>
-                <span class="w-16 text-right">ราคา/หน่วย</span>
-                <span class="w-20 text-right">รวม (บาท)</span>
-                <span class="w-8 text-center">ลบ</span>
+            <!-- History List Card -->
+            <div class="bg-white rounded-[2rem] shadow-bento flex flex-col flex-grow overflow-hidden h-[400px] lg:h-auto">
+                <div class="p-6 pb-2 border-b border-gray-50 flex justify-between items-center">
+                    <h2 class="font-bold text-gray-700">ประวัติเอกสาร</h2>
+                    <span id="docCount" class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">0</span>
+                </div>
+                <div class="overflow-y-auto p-4 flex-grow custom-scrollbar">
+                    <ul id="documentList" class="space-y-2">
+                        <li class="text-center text-gray-400 text-sm py-8 italic">ไม่มีเอกสารที่บันทึกไว้</li>
+                    </ul>
+                </div>
             </div>
+        </aside>
 
-            <!-- Items Table Body -->
-            <div id="itemsContainer" class="border border-gray-300 border-t-0 text-sm">
-                <!-- Item Rows will be inserted here -->
-            </div>
+        <!-- COLUMN 2: Workspace (Center Panel) -->
+        <main id="mainWorkspace" class="col-span-1 lg:col-span-7 bg-gray-200/50 lg:rounded-[2rem] relative overflow-y-auto flex justify-center pt-8 pb-20 lg:pb-8 shadow-inner custom-scrollbar mobile-stack">
+            <!-- Toggle View Floating Button (Mobile only shown via logic, but handled here) -->
             
-            <!-- Add Item Button -->
-            <button id="addItemBtn" class="w-full text-indigo-600 hover:text-indigo-800 border-b border-l border-r border-gray-300 py-2 transition duration-150 text-sm font-semibold">
-                + เพิ่มรายการ
-            </button>
-            
-            <!-- Summary and Totals -->
-            <div class="flex flex-wrap mt-6">
-                <!-- Payment Details & Notes -->
-                <div class="w-full lg:w-2/3 pr-0 lg:pr-4 mb-4 lg:mb-0">
-                    <h3 class="text-md font-bold mb-2">เงื่อนไขการชำระเงินและหมายเหตุ</h3>
-                    <div class="relative mb-2">
-                         <textarea id="paymentDetail" rows="4" class="w-full p-2 border rounded-lg text-sm bg-white resize-none" placeholder="เช่น ชำระ 50% มัดจำ ส่วนที่เหลือชำระวันส่งมอบ"></textarea>
-                        <button id="generatePaymentBtn" class="absolute top-1 right-1 bg-blue-500 hover:bg-blue-600 text-white text-xs py-1 px-2 rounded-full transition duration-150 shadow-md">
-                            AI ช่วยสร้าง
-                        </button>
+            <!-- The A4 Paper -->
+            <div id="documentToCapture" class="document-paper shadow-paper rounded-sm p-8 md:p-12 relative">
+                
+                <!-- Paper Header -->
+                <div class="flex flex-col sm:flex-row justify-between items-start border-b-2 border-indigo-100 pb-6 mb-6 gap-4">
+                    <div class="flex flex-col w-full sm:w-2/3">
+                        <input type="text" id="companyName" value="ชื่อบริษัท/ร้านค้าของคุณ" class="text-2xl sm:text-3xl font-bold text-indigo-900 mb-2 clean-input w-full bg-transparent placeholder-indigo-300" placeholder="ชื่อบริษัท">
+                        <textarea id="companyAddress" class="text-sm text-gray-500 w-full clean-input resize-none bg-transparent h-16" placeholder="ที่อยู่และเบอร์โทรศัพท์"></textarea>
                     </div>
-                   
-                    <textarea id="documentNote" rows="2" class="w-full p-2 border rounded-lg text-sm bg-white resize-none" placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"></textarea>
+                    <div class="w-full sm:w-auto">
+                        <div class="relative">
+                            <select id="documentType" class="appearance-none bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold py-2 px-4 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent cursor-pointer w-full text-center">
+                                <option value="ใบเสนอราคา">ใบเสนอราคา</option>
+                                <option value="ใบเสร็จรับเงิน">ใบเสร็จรับเงิน</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-indigo-700">
+                                <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Grid -->
+                <div class="bg-gray-50 rounded-xl p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm border border-gray-100">
+                    <div class="md:col-span-2 space-y-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-gray-400 font-medium w-16">ลูกค้า:</span>
+                            <input type="text" id="customerName" class="flex-grow clean-input bg-white p-1 rounded" placeholder="ชื่อลูกค้า/บริษัท">
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-gray-400 font-medium w-16 mt-1">ที่อยู่:</span>
+                            <textarea id="customerAddress" class="flex-grow clean-input bg-white p-1 rounded resize-none h-14" placeholder="ที่อยู่จัดส่ง"></textarea>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-gray-400 font-medium w-16">ติดต่อ:</span>
+                            <input type="text" id="customerContact" class="flex-grow clean-input bg-white p-1 rounded" placeholder="เบอร์โทร/อีเมล">
+                        </div>
+                    </div>
+                    <div class="space-y-3 border-t md:border-t-0 md:border-l border-gray-200 pt-3 md:pt-0 md:pl-6">
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-400 font-medium">เลขที่:</span>
+                            <input type="text" id="documentNumber" class="w-32 clean-input bg-white p-1 rounded text-right font-mono text-gray-700" placeholder="NO-001">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-400 font-medium">วันที่:</span>
+                            <input type="date" id="documentDate" class="w-32 clean-input bg-white p-1 rounded text-right text-gray-700">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-gray-400 font-medium">ครบกำหนด:</span>
+                            <input type="date" id="dueDate" class="w-32 clean-input bg-white p-1 rounded text-right text-gray-700">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="mb-4">
+                    <!-- Header -->
+                    <div class="flex text-xs font-semibold text-gray-500 uppercase tracking-wider border-b-2 border-gray-200 pb-2 mb-2">
+                        <span class="w-8 text-center">#</span>
+                        <span class="w-24 text-center">หมวดหมู่</span>
+                        <span class="w-16 text-center">รหัส</span>
+                        <span class="flex-grow pl-2">รายการ</span>
+                        <span class="w-12 text-center">กว้าง</span>
+                        <span class="w-12 text-center">สูง</span>
+                        <span class="w-12 text-center">จำนวน</span>
+                        <span class="w-20 text-right">ราคา</span>
+                        <span class="w-24 text-right pr-2">รวม</span>
+                        <span class="w-8 text-center opacity-0 group-hover:opacity-100 transition">ลบ</span>
+                    </div>
+                    
+                    <!-- Items -->
+                    <div id="itemsContainer" class="space-y-1 text-sm">
+                        <!-- JS renders items here -->
+                    </div>
+
+                    <!-- Add Button -->
+                    <button id="addItemBtn" class="mt-4 w-full py-2 border-2 border-dashed border-indigo-200 rounded-lg text-indigo-400 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50 transition flex items-center justify-center gap-2 text-sm font-medium">
+                        <i class="fas fa-plus"></i> เพิ่มรายการสินค้า
+                    </button>
+                </div>
+
+                <!-- Footer Summary -->
+                <div class="flex flex-col md:flex-row gap-8 mt-8">
+                    <!-- Notes -->
+                    <div class="w-full md:w-7/12 space-y-4">
+                        <div class="relative group">
+                            <label class="block text-xs font-bold text-gray-400 mb-1 uppercase">เงื่อนไขการชำระเงิน</label>
+                            <textarea id="paymentDetail" rows="3" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none resize-none transition" placeholder="ระบุเงื่อนไข..."></textarea>
+                            <button id="generatePaymentBtn" class="absolute top-7 right-2 bg-white/80 backdrop-blur text-indigo-600 hover:text-indigo-800 p-1.5 rounded-md shadow-sm border border-gray-100 text-xs transition opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                                <i class="fas fa-magic"></i> AI
+                            </button>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 mb-1 uppercase">หมายเหตุ</label>
+                            <textarea id="documentNote" rows="2" class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none resize-none transition" placeholder="หมายเหตุเพิ่มเติม..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Calculation -->
+                    <div class="w-full md:w-5/12 bg-indigo-50/50 rounded-xl p-5 border border-indigo-100 h-fit">
+                        <div class="flex justify-between mb-2 text-sm text-gray-600">
+                            <span>รวมเป็นเงิน</span>
+                            <span id="subTotal" class="font-medium">0.00</span>
+                        </div>
+                        <div class="flex justify-between mb-2 text-sm items-center">
+                            <div class="flex items-center gap-2 text-gray-600">
+                                <span>ภาษีมูลค่าเพิ่ม</span>
+                                <div class="relative">
+                                    <input type="number" id="taxRate" value="7" class="w-10 text-center bg-white border border-gray-300 rounded text-xs py-0.5 focus:outline-none focus:border-indigo-500">
+                                    <span class="absolute -right-3 top-0.5 text-xs">%</span>
+                                </div>
+                            </div>
+                            <span id="taxAmount" class="font-medium text-red-500">0.00</span>
+                        </div>
+                        <div class="border-t border-indigo-200 my-3"></div>
+                        <div class="flex justify-between items-end">
+                            <span class="text-indigo-900 font-bold">ยอดรวมสุทธิ</span>
+                            <span id="grandTotal" class="text-2xl font-bold text-indigo-600 leading-none">0.00</span>
+                        </div>
+                        <div class="text-right text-xs text-indigo-400 mt-1">บาท (THB)</div>
+                    </div>
+                </div>
+
+                <!-- Signatures -->
+                <div class="document-footer grid grid-cols-2 gap-12 mt-16 pt-8 text-sm text-center text-gray-500">
+                    <div>
+                        <div class="border-b border-gray-300 w-4/5 mx-auto mb-2"></div>
+                        <p>ผู้รับวางบิล / ผู้รับของ</p>
+                        <p class="text-xs mt-1">(................................................)</p>
+                    </div>
+                    <div>
+                        <div class="border-b border-gray-300 w-4/5 mx-auto mb-2"></div>
+                        <p>ผู้ออกเอกสาร / ผู้รับเงิน</p>
+                        <p class="text-xs mt-1">(................................................)</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- COLUMN 3: Tools (Right Panel) -->
+        <aside class="bento-ui-element col-span-1 lg:col-span-2 flex flex-col gap-4 lg:h-full mobile-stack">
+            
+            <!-- Message Box Notification -->
+            <div id="messageBox" class="hidden transform transition-all duration-300 bg-white p-4 rounded-2xl shadow-bento border-l-4 border-indigo-500">
+                <p class="text-sm text-gray-700 font-medium"></p>
+            </div>
+
+            <!-- View Mode Switcher -->
+            <div class="bg-white rounded-[2rem] p-4 shadow-bento">
+                <button id="toggleViewModeBtn" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-2 group">
+                    <span id="viewModeIcon" class="text-xl group-hover:scale-110 transition">💻</span>
+                    <span id="viewModeText" class="text-sm">Desktop View</span>
+                </button>
+            </div>
+
+            <!-- Main Actions Grid (Bento within Bento) -->
+            <div class="bg-white rounded-[2rem] p-5 shadow-bento flex-grow flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+                <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider ml-1">เครื่องมือ</h3>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="newDocumentBtn" class="col-span-1 aspect-square bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition hover:-translate-y-1 hover:shadow-md">
+                        <i class="fas fa-plus text-2xl"></i>
+                        <span class="text-xs font-semibold">สร้างใหม่</span>
+                    </button>
+                    
+                    <button id="saveDocumentBtn" class="col-span-1 aspect-square bg-green-50 hover:bg-green-100 text-green-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition hover:-translate-y-1 hover:shadow-md">
+                        <i class="fas fa-save text-2xl"></i>
+                        <span class="text-xs font-semibold">บันทึก</span>
+                    </button>
+                </div>
+
+                <div class="space-y-3 mt-2">
+                    <button id="manageCategoriesBtn" class="w-full bg-purple-50 hover:bg-purple-100 text-purple-600 py-3 px-4 rounded-xl text-left flex items-center gap-3 transition">
+                        <div class="w-8 h-8 rounded-lg bg-purple-200 flex items-center justify-center"><i class="fas fa-tags"></i></div>
+                        <span class="text-sm font-medium">จัดการหมวดหมู่</span>
+                    </button>
+
+                    <button id="previewDocumentBtn" class="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 py-3 px-4 rounded-xl text-left flex items-center gap-3 transition">
+                        <div class="w-8 h-8 rounded-lg bg-blue-200 flex items-center justify-center"><i class="fas fa-eye"></i></div>
+                        <span class="text-sm font-medium">ดูตัวอย่าง</span>
+                    </button>
+
+                    <button id="captureDocumentBtn" class="w-full bg-amber-50 hover:bg-amber-100 text-amber-600 py-3 px-4 rounded-xl text-left flex items-center gap-3 transition">
+                        <div class="w-8 h-8 rounded-lg bg-amber-200 flex items-center justify-center"><i class="fas fa-image"></i></div>
+                        <span class="text-sm font-medium">บันทึกเป็นรูป (PNG)</span>
+                    </button>
+
+                    <button id="printDocumentBtn" class="w-full bg-red-50 hover:bg-red-100 text-red-600 py-3 px-4 rounded-xl text-left flex items-center gap-3 transition">
+                        <div class="w-8 h-8 rounded-lg bg-red-200 flex items-center justify-center"><i class="fas fa-file-pdf"></i></div>
+                        <span class="text-sm font-medium">พิมพ์ / PDF</span>
+                    </button>
                 </div>
                 
-                <!-- Totals -->
-                <div class="w-full lg:w-1/3 bg-gray-50 p-4 border rounded-lg shadow-inner">
-                    <div class="flex justify-between mb-2">
-                        <span class="font-semibold">รวมราคาสินค้า (ไม่รวมภาษี):</span>
-                        <span id="subTotal" class="font-semibold">0.00</span>
-                    </div>
-                    <div class="flex justify-between mb-2 items-center">
-                        <label class="font-semibold flex items-center">ภาษีมูลค่าเพิ่ม 
-                            <input type="number" id="taxRate" value="7" min="0" max="100" class="w-12 text-right ml-2 border p-0.5 rounded text-sm"> %:
-                        </label>
-                        <span id="taxAmount" class="font-semibold text-red-600">0.00</span>
-                    </div>
-                    <div class="flex justify-between border-t border-gray-300 pt-3 mt-3">
-                        <span class="text-xl font-bold text-indigo-600">ยอดรวมสุทธิ:</span>
-                        <span id="grandTotal" class="text-xl font-bold text-indigo-600">0.00</span>
-                    </div>
+                <div class="mt-auto pt-4 text-center">
+                   <p class="text-[10px] text-gray-300">v2.1 Bento Edition + Settings</p>
                 </div>
             </div>
+        </aside>
 
-            <!-- Footer (Signatures) -->
-            <div class="document-footer grid grid-cols-2 gap-8 mt-16 text-sm">
-                <div class="text-center">
-                    <div class="mt-12 border-b border-gray-400 w-3/4 mx-auto pb-1"></div>
-                    <p class="mt-2">ผู้รับเอกสาร (ลงชื่อ)</p>
-                    <p>(................................................)</p>
-                </div>
-                <div class="text-center">
-                    <div class="mt-12 border-b border-gray-400 w-3/4 mx-auto pb-1"></div>
-                    <p class="mt-2">ผู้ออกเอกสาร (ลงชื่อ)</p>
-                    <p>(................................................)</p>
-                </div>
-            </div>
+    </div>
 
-        </div>
-    </main>
-
-    <!-- Modal: Preview/Delete Confirmation -->
+    <!-- Modals (Hidden) -->
     
+    <!-- Category Manager Modal -->
+    <div id="categoryModal" class="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-md transform transition-all scale-100 mx-4">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-tags text-purple-500"></i> จัดการหมวดหมู่สินค้า
+                </h3>
+                <button id="closeCategoryModalBtn" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="mb-4">
+                <div class="flex gap-2 mb-2">
+                    <input type="text" id="newCategoryInput" class="flex-grow border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="ชื่อหมวดหมู่ใหม่...">
+                    <button id="addNewCategoryBtn" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                        เพิ่ม
+                    </button>
+                </div>
+                <p class="text-xs text-gray-400">เพิ่มหมวดหมู่เพื่อให้เลือกได้ในเอกสาร</p>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl p-2 h-64 overflow-y-auto custom-scrollbar border border-gray-100">
+                <ul id="categoryList" class="space-y-1">
+                    <!-- Categories rendered here -->
+                </ul>
+            </div>
+            
+            <div class="mt-4 text-right">
+                <button id="doneCategoryBtn" class="bg-gray-800 hover:bg-gray-900 text-white px-6 py-2 rounded-xl text-sm font-medium transition shadow-lg">เสร็จสิ้น</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Modal -->
-    <div id="deleteModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 items-center justify-center hidden">
-        <div class="bg-white p-6 rounded-lg shadow-xl w-80">
-            <h3 class="text-lg font-bold mb-4">ยืนยันการลบ</h3>
-            <p>คุณต้องการลบเอกสาร "<span id="docToDeleteName" class="font-semibold text-red-600"></span>" ใช่หรือไม่? การดำเนินการนี้ไม่สามารถยกเลิกได้</p>
-            <div class="flex justify-end space-x-3 mt-4">
-                <button id="cancelDeleteBtn" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded-lg text-sm">ยกเลิก</button>
-                <button id="confirmDeleteBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm">ลบ</button>
+    <div id="deleteModal" class="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl w-80 transform transition-all scale-100">
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i class="fas fa-trash-alt text-xl"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800">ยืนยันการลบ?</h3>
+                <p class="text-sm text-gray-500 mt-1">เอกสาร "<span id="docToDeleteName" class="font-semibold text-gray-700"></span>" จะหายไปถาวร</p>
+            </div>
+            <div class="flex gap-3">
+                <button id="cancelDeleteBtn" class="flex-1 py-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm font-medium transition">ยกเลิก</button>
+                <button id="confirmDeleteBtn" class="flex-1 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 text-sm font-medium transition shadow-lg shadow-red-200">ลบเลย</button>
             </div>
         </div>
     </div>
-    
+
     <!-- Preview Modal -->
-    <div id="previewModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 items-center justify-center hidden">
-        <div class="bg-white p-2 md:p-4 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div class="flex justify-between items-center border-b pb-2 mb-2">
-                 <h3 class="text-lg font-bold">ตัวอย่างใบเสนอราคา</h3>
-                 <button id="closePreviewBtn" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
+    <div id="previewModal" class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2"><i class="fas fa-search"></i> ตัวอย่างเอกสาร</h3>
+                <button id="closePreviewBtn" class="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center transition"><i class="fas fa-times"></i></button>
             </div>
-            <div id="previewContent" class="flex-grow overflow-y-auto p-4 border rounded-lg bg-gray-50">
-                <!-- Document content will be cloned here -->
+            <div id="previewContent" class="flex-grow overflow-y-auto p-8 bg-gray-200 flex justify-center">
+                <!-- Clone Content Here -->
             </div>
-            <div class="mt-4 flex justify-end">
-                <button id="downloadPreviewPdfBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm shadow-md">ดาวน์โหลดเป็น PDF</button>
+            <div class="p-4 border-t bg-white flex justify-end gap-3">
+                <button id="downloadPreviewPdfBtn" class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-xl shadow-lg shadow-red-200 transition flex items-center gap-2">
+                    <i class="fas fa-download"></i> ดาวน์โหลด PDF
+                </button>
             </div>
         </div>
     </div>
-    
+
     <script>
-        // --- Global Variables (Provided by Canvas) ---
+        // --- Core Application Logic ---
+        
+        // --- Global Variables ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-        let db;
-        let auth;
+        let db, auth;
         let userId = null;
         let currentDocumentId = null;
-        let currentDocumentData = {};
-        let isMobileMode = false; // สถานะการทำงานของโหมด Mobile
+        let isMobileMode = false;
 
-        const CATEGORIES = [
+        // Default Categories (Mutable)
+        let CATEGORIES = [
             { value: 'ฉาก PVC', label: 'ฉาก PVC' },
             { value: 'ม่านม้วน', label: 'ม่านม้วน' },
             { value: 'มู่ลี่ไม้', label: 'มู่ลี่ไม้' },
             { value: 'มู่ลี่อลูมิเนียม', label: 'มู่ลี่อลูมิเนียม' }
         ];
 
-        const documentElements = {
+        // UI References
+        const els = {
             docType: document.getElementById('documentType'),
             companyName: document.getElementById('companyName'),
             companyAddress: document.getElementById('companyAddress'),
@@ -322,84 +495,27 @@
             taxAmount: document.getElementById('taxAmount'),
             grandTotal: document.getElementById('grandTotal'),
         };
-        
-        // Element สำหรับการควบคุมโหมด
-        const mainContainer = document.getElementById('mainContainer');
-        const documentToCapture = document.getElementById('documentToCapture');
-        const toggleViewModeBtn = document.getElementById('toggleViewModeBtn');
-        const viewModeIcon = document.getElementById('viewModeIcon');
-        const viewModeText = document.getElementById('viewModeText');
-
 
         // --- Utility Functions ---
 
-        /** แสดงข้อความสถานะชั่วคราว */
         function showMessage(text, isError = false) {
-            const msg = document.getElementById('messageBox');
-            // ตรวจสอบว่ามี element อยู่จริงหรือไม่ ก่อนดำเนินการ
-            if (!msg) {
-                console.warn('Message box element not found.');
-                return;
-            }
-            msg.textContent = text;
-            msg.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-indigo-100', 'text-indigo-800');
-            msg.classList.add(isError ? 'bg-red-100' : 'bg-indigo-100', isError ? 'text-red-800' : 'text-indigo-800');
+            const msgBox = document.getElementById('messageBox');
+            const msgText = msgBox.querySelector('p');
+            msgText.textContent = text;
+            msgBox.className = `transform transition-all duration-300 p-4 rounded-2xl shadow-bento border-l-4 fixed bottom-4 right-4 z-[60] flex items-center gap-3 ${isError ? 'bg-red-50 border-red-500 text-red-800' : 'bg-white border-indigo-500 text-indigo-800'}`;
+            msgBox.classList.remove('hidden', 'translate-y-10', 'opacity-0');
+            
             setTimeout(() => {
-                msg.classList.add('hidden');
+                msgBox.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => msgBox.classList.add('hidden'), 300);
             }, 3000);
         }
 
-        /** ดึงข้อมูลจาก UI Elements มาเก็บใน Object */
-        function getDocumentDataFromUI() {
-            const items = Array.from(documentElements.itemsContainer.querySelectorAll('.item-row')).map(row => {
-                // ต้องมี try-catch ในการแปลงค่า เพราะค่าใน input อาจเป็น undefined
-                try {
-                    return {
-                        category: row.querySelector('select[name="category"]').value, 
-                        productCode: row.querySelector('input[name="productCode"]').value,
-                        description: row.querySelector('textarea[name="description"]').value,
-                        // ใช้ parseFloat() เพื่อแปลงค่าจาก input string ให้เป็นตัวเลข
-                        width: parseFloat(row.querySelector('input[name="width"]').value) || 0,
-                        height: parseFloat(row.querySelector('input[name="height"]').value) || 0,
-                        quantity: parseFloat(row.querySelector('input[name="quantity"]').value) || 0,
-                        unitPrice: parseFloat(row.querySelector('input[name="unitPrice"]').value) || 0,
-                        id: row.dataset.id
-                    };
-                } catch (e) {
-                    console.error("Error reading item row data:", e);
-                    return null;
-                }
-            }).filter(item => item !== null);
-
-            const data = {
-                documentType: documentElements.docType?.value || 'ใบเสนอราคา',
-                companyName: documentElements.companyName?.value || 'ชื่อบริษัท/ร้านค้าของคุณ',
-                companyAddress: documentElements.companyAddress?.value || '',
-                customerName: documentElements.customerName?.value || '',
-                customerAddress: documentElements.customerAddress?.value || '',
-                customerContact: documentElements.customerContact?.value || '',
-                documentNumber: documentElements.docNumber?.value || '',
-                documentDate: documentElements.docDate?.value || '',
-                dueDate: documentElements.dueDate?.value || '',
-                paymentDetail: documentElements.paymentDetail?.value || '',
-                documentNote: documentElements.documentNote?.value || '',
-                taxRate: parseFloat(documentElements.taxRate?.value) || 0,
-                items: items,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            const totals = calculateTotals(data.items, data.taxRate);
-            return { ...data, ...totals };
-        }
-
-        /** คำนวณยอดรวมทั้งหมด */
         function calculateTotals(items, taxRate) {
             const subTotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-            
             const rate = (taxRate || 0) / 100;
             const taxAmount = subTotal * rate;
             const grandTotal = subTotal + taxAmount;
-            
             return {
                 subTotal: parseFloat(subTotal.toFixed(2)),
                 taxAmount: parseFloat(taxAmount.toFixed(2)),
@@ -407,76 +523,92 @@
             };
         }
 
-        /** อัปเดต UI ด้วยค่า Total ที่คำนวณใหม่ */
-        function updateTotalsUI() {
-             try {
-                const data = getDocumentDataFromUI();
-                
-                documentElements.subTotal.textContent = data.subTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-                documentElements.taxAmount.textContent = data.taxAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-                documentElements.grandTotal.textContent = data.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-                
-                // อัปเดตผลรวมในแต่ละแถว
-                documentElements.itemsContainer.querySelectorAll('.item-row').forEach(row => {
-                    const quantity = parseFloat(row.querySelector('input[name="quantity"]').value) || 0;
-                    const unitPrice = parseFloat(row.querySelector('input[name="unitPrice"]').value) || 0;
-                    const total = (quantity * unitPrice).toFixed(2);
-                    row.querySelector('.item-total').textContent = parseFloat(total).toLocaleString('th-TH', { minimumFractionDigits: 2 });
-                });
-                
-                document.querySelector('title').textContent = `${data.documentType} | เครื่องมือจัดการเอกสารขาย`;
-            } catch (e) {
-                console.error("Error updating totals UI:", e);
-                // ไม่ต้องแสดง error box เนื่องจากอาจเป็น input error เล็กๆ
-            }
+        function getDocumentData() {
+            const items = Array.from(els.itemsContainer.querySelectorAll('.item-row')).map(row => {
+                try {
+                    return {
+                        category: row.querySelector('.item-category').value, 
+                        productCode: row.querySelector('.item-code').value,
+                        description: row.querySelector('.item-desc').value,
+                        width: parseFloat(row.querySelector('.item-w').value) || 0,
+                        height: parseFloat(row.querySelector('.item-h').value) || 0,
+                        quantity: parseFloat(row.querySelector('.item-qty').value) || 0,
+                        unitPrice: parseFloat(row.querySelector('.item-price').value) || 0,
+                        id: row.dataset.id
+                    };
+                } catch (e) { return null; }
+            }).filter(i => i !== null);
+
+            const totals = calculateTotals(items, parseFloat(els.taxRate.value) || 0);
+
+            return {
+                documentType: els.docType.value,
+                companyName: els.companyName.value,
+                companyAddress: els.companyAddress.value,
+                customerName: els.customerName.value,
+                customerAddress: els.customerAddress.value,
+                customerContact: els.customerContact.value,
+                documentNumber: els.docNumber.value,
+                documentDate: els.docDate.value,
+                dueDate: els.dueDate.value,
+                paymentDetail: els.paymentDetail.value,
+                documentNote: els.documentNote.value,
+                taxRate: parseFloat(els.taxRate.value) || 0,
+                items: items,
+                ...totals,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
         }
 
-        /** สร้างแถวรายการสินค้าใน UI */
-        function createItemRow(item = { 
-            category: 'ฉาก PVC', 
-            productCode: '', 
-            description: '', 
-            width: 0, 
-            height: 0, 
-            quantity: 1, 
-            unitPrice: 0, 
-            id: crypto.randomUUID() 
-        }) {
+        function updateTotalsUI() {
+            const data = getDocumentData();
+            els.subTotal.textContent = data.subTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            els.taxAmount.textContent = data.taxAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            els.grandTotal.textContent = data.grandTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            
+            // Row totals
+            els.itemsContainer.querySelectorAll('.item-row').forEach(row => {
+                const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
+                const price = parseFloat(row.querySelector('.item-price').value) || 0;
+                row.querySelector('.item-total').textContent = (qty * price).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            });
+        }
+
+        function createItemRow(item = { category: '', productCode: '', description: '', width: 0, height: 0, quantity: 1, unitPrice: 0, id: crypto.randomUUID() }) {
             const row = document.createElement('div');
-            row.className = 'item-row flex items-center border-b border-gray-200 text-sm py-2';
+            row.className = 'item-row flex items-center border-b border-gray-100 py-2 group hover:bg-gray-50 transition rounded px-1';
             row.dataset.id = item.id;
+
+            // Generate Options using current CATEGORIES
+            // If item has a category not in the list, we append it momentarily to display it correctly or default to first
+            let optionsHtml = CATEGORIES.map(c => `<option value="${c.value}" ${item.category === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
             
-            const total = (item.quantity * item.unitPrice).toFixed(2);
-            
-            // สร้าง options สำหรับหมวดหมู่
-            const categoryOptions = CATEGORIES.map(cat => 
-                `<option value="${cat.value}" ${item.category === cat.value ? 'selected' : ''}>${cat.label}</option>`
-            ).join('');
+            // Fallback: If category exists in data but not in list, add it as a hidden/temp option
+            const exists = CATEGORIES.some(c => c.value === item.category);
+            if (item.category && !exists) {
+                optionsHtml += `<option value="${item.category}" selected>${item.category} (Legacy)</option>`;
+            } else if (!item.category && CATEGORIES.length > 0) {
+                 // Default to first if new
+                 item.category = CATEGORIES[0].value;
+                 optionsHtml = CATEGORIES.map(c => `<option value="${c.value}" ${item.category === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+            }
 
             row.innerHTML = `
-                <span class="w-8 text-center item-index font-mono text-gray-500"></span>
-                <select name="category" class="w-28 border rounded mr-1 flex-shrink-0">${categoryOptions}</select>
-                <input type="text" name="productCode" value="${item.productCode}" class="w-16 border rounded mr-1 flex-shrink-0" placeholder="รหัส">
-                <textarea name="description" class="flex-grow p-1 ml-1 resize-none h-10 border rounded" placeholder="รายละเอียดอื่นๆ">${item.description}</textarea>
-                <input type="number" name="width" value="${item.width}" min="0" step="0.01" class="w-12 text-center border rounded mx-1 flex-shrink-0" placeholder="ก">
-                <input type="number" name="height" value="${item.height}" min="0" step="0.01" class="w-12 text-center border rounded mx-1 flex-shrink-0" placeholder="ส">
-                <input type="number" name="quantity" value="${item.quantity}" min="0" class="w-12 text-center border rounded mx-1 flex-shrink-0" placeholder="จำ">
-                <input type="number" name="unitPrice" value="${item.unitPrice}" min="0" step="0.01" class="w-16 text-right border rounded mx-1 flex-shrink-0" placeholder="ราคา">
-                <span class="w-20 text-right item-total font-semibold pr-1 flex-shrink-0">${parseFloat(total).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-                <button type="button" class="w-8 text-center text-red-500 hover:text-red-700 delete-item-btn flex-shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mx-auto" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 10-2 0v6a1 1 0 102 0V8z" clip-rule="evenodd" />
-                    </svg>
+                <span class="w-8 text-center item-index text-gray-400 text-xs"></span>
+                <select class="item-category w-24 text-xs border-none bg-transparent focus:ring-1 rounded text-gray-600 cursor-pointer hover:bg-gray-100">${optionsHtml}</select>
+                <input type="text" class="item-code w-16 text-xs border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1 text-center" value="${item.productCode}" placeholder="รหัส">
+                <input type="text" class="item-desc flex-grow text-sm border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1" value="${item.description}" placeholder="รายละเอียดสินค้า">
+                <input type="number" class="item-w w-12 text-xs border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1 text-center" value="${item.width}" step="0.01">
+                <input type="number" class="item-h w-12 text-xs border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1 text-center" value="${item.height}" step="0.01">
+                <input type="number" class="item-qty w-12 text-sm font-semibold border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1 text-center text-indigo-600" value="${item.quantity}">
+                <input type="number" class="item-price w-20 text-sm border-b border-gray-200 focus:border-indigo-500 outline-none bg-transparent mx-1 text-right" value="${item.unitPrice}" step="0.01">
+                <span class="item-total w-24 text-right text-sm font-bold text-gray-700 pr-2">0.00</span>
+                <button class="w-8 text-center text-gray-300 hover:text-red-500 transition delete-item-btn opacity-0 group-hover:opacity-100">
+                    <i class="fas fa-trash-alt"></i>
                 </button>
             `;
 
-            // เพิ่ม Event Listeners สำหรับการคำนวณ
-            const inputs = row.querySelectorAll('input, select, textarea');
-            inputs.forEach(input => {
-                input.addEventListener('input', updateTotalsUI);
-            });
-
-            // Event Listener สำหรับปุ่มลบ
+            row.querySelectorAll('input, select').forEach(inp => inp.addEventListener('input', updateTotalsUI));
             row.querySelector('.delete-item-btn').addEventListener('click', () => {
                 row.remove();
                 renumberItems();
@@ -486,663 +618,413 @@
             return row;
         }
 
-        /** จัดลำดับเลขรายการใหม่ */
         function renumberItems() {
-            documentElements.itemsContainer.querySelectorAll('.item-row').forEach((row, index) => {
-                row.querySelector('.item-index').textContent = index + 1;
-            });
+            els.itemsContainer.querySelectorAll('.item-row').forEach((row, i) => row.querySelector('.item-index').textContent = i + 1);
         }
 
-        /** โหลดข้อมูลเอกสารลงใน UI */
         function renderDocumentData(data) {
-            currentDocumentData = data;
-            
-            documentElements.docType.value = data.documentType || 'ใบเสนอราคา';
-            documentElements.companyName.value = data.companyName || 'ชื่อบริษัท/ร้านค้าของคุณ';
-            documentElements.companyAddress.value = data.companyAddress || '';
-            documentElements.customerName.value = data.customerName || '';
-            documentElements.customerAddress.value = data.customerAddress || '';
-            documentElements.customerContact.value = data.customerContact || '';
-            documentElements.docNumber.value = data.documentNumber || '';
-            documentElements.docDate.value = data.documentDate || new Date().toISOString().substring(0, 10);
-            documentElements.dueDate.value = data.dueDate || '';
-            documentElements.paymentDetail.value = data.paymentDetail || '';
-            documentElements.documentNote.value = data.documentNote || '';
-            documentElements.taxRate.value = data.taxRate || 7;
-            
-            // Render Items
-            documentElements.itemsContainer.innerHTML = '';
-            // ตรวจสอบว่า data.items มีอยู่และเป็น Array ที่มีข้อมูลหรือไม่
-            const itemsToRender = (Array.isArray(data.items) && data.items.length > 0) 
-                                ? data.items 
-                                : [{ category: 'ฉาก PVC', productCode: '', description: '', width: 0, height: 0, quantity: 1, unitPrice: 0, id: crypto.randomUUID() }];
-                                
-            itemsToRender.forEach(item => {
-                documentElements.itemsContainer.appendChild(createItemRow(item));
-            });
+            els.docType.value = data.documentType || 'ใบเสนอราคา';
+            els.companyName.value = data.companyName || 'ชื่อบริษัท';
+            els.companyAddress.value = data.companyAddress || '';
+            els.customerName.value = data.customerName || '';
+            els.customerAddress.value = data.customerAddress || '';
+            els.customerContact.value = data.customerContact || '';
+            els.docNumber.value = data.documentNumber || '';
+            els.docDate.value = data.documentDate || new Date().toISOString().substring(0, 10);
+            els.dueDate.value = data.dueDate || '';
+            els.paymentDetail.value = data.paymentDetail || '';
+            els.documentNote.value = data.documentNote || '';
+            els.taxRate.value = data.taxRate || 7;
 
+            els.itemsContainer.innerHTML = '';
+            // If data has items, use them. Else, create one default item row using the *current* category default
+            const itemsToRender = (data.items && data.items.length) ? data.items : [{category: (CATEGORIES[0]?.value || ''), quantity: 1, unitPrice: 0, id: crypto.randomUUID()}];
+            
+            itemsToRender.forEach(item => {
+                els.itemsContainer.appendChild(createItemRow(item));
+            });
             renumberItems();
             updateTotalsUI();
         }
 
-        /** เคลียร์ฟอร์มสำหรับเอกสารใหม่ */
         function createNewDocument() {
             currentDocumentId = null;
-            renderDocumentData({ 
-                documentType: 'ใบเสนอราคา',
-                documentDate: new Date().toISOString().substring(0, 10),
-                companyName: 'ชื่อบริษัท/ร้านค้าของคุณ'
-            });
-            document.querySelectorAll('#documentList button').forEach(btn => btn.closest('li').classList.remove('bg-indigo-200', 'shadow-inner'));
-            document.getElementById('saveDocumentBtn').textContent = 'บันทึกเอกสาร';
-            showMessage('สร้างเอกสารใหม่เรียบร้อยแล้ว');
+            renderDocumentData({ documentDate: new Date().toISOString().substring(0, 10) });
+            document.querySelectorAll('#documentList li').forEach(li => li.classList.remove('bg-indigo-50', 'border-indigo-500', 'border-l-4'));
+            document.getElementById('saveDocumentBtn').querySelector('span').textContent = 'บันทึก';
+            showMessage('สร้างเอกสารใหม่พร้อมแล้ว');
         }
         
-        // --- View Mode Toggle ---
-        function toggleViewMode() {
-            isMobileMode = !isMobileMode;
-
-            if (isMobileMode) {
-                // Switch to Mobile Mode (Full Screen)
-                documentToCapture.classList.add('mobile-mode-active');
-                mainContainer.classList.add('mobile-mode-active-padding');
-                viewModeIcon.textContent = '📱';
-                viewModeText.textContent = 'โหมดมือถือ (เต็มจอ)';
-                showMessage('ปรับเป็นโหมดมือถือแล้ว (เต็มจอ)');
-
-            } else {
-                // Switch back to Desktop Mode (A4 Mockup)
-                documentToCapture.classList.remove('mobile-mode-active');
-                mainContainer.classList.remove('mobile-mode-active-padding');
-                viewModeIcon.textContent = '💻';
-                viewModeText.textContent = 'โหมดเดสก์ท็อป (A4)';
-                showMessage('ปรับเป็นโหมดเดสก์ท็อปแล้ว (A4)');
+        // --- Category Management Logic ---
+        function updateAllCategoryDropdowns() {
+            els.itemsContainer.querySelectorAll('.item-row').forEach(row => {
+                const select = row.querySelector('.item-category');
+                const currentValue = select.value;
+                
+                // Re-build options
+                let optionsHtml = CATEGORIES.map(c => `<option value="${c.value}" ${currentValue === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+                
+                // Keep legacy value if missing
+                const exists = CATEGORIES.some(c => c.value === currentValue);
+                if (currentValue && !exists) {
+                    optionsHtml += `<option value="${currentValue}" selected>${currentValue} (Legacy)</option>`;
+                }
+                
+                select.innerHTML = optionsHtml;
+            });
+        }
+        
+        function renderCategoryModalList() {
+            const list = document.getElementById('categoryList');
+            list.innerHTML = '';
+            CATEGORIES.forEach((cat, index) => {
+                const li = document.createElement('li');
+                li.className = 'flex justify-between items-center bg-white p-2 rounded border border-gray-100 hover:bg-gray-50';
+                li.innerHTML = `
+                    <span class="text-sm text-gray-700">${cat.label}</span>
+                    <button class="text-red-400 hover:text-red-600 transition p-1" onclick="deleteCategory(${index})">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                `;
+                list.appendChild(li);
+            });
+        }
+        
+        async function saveCategories() {
+            if (!userId) return;
+            try {
+                // Save to: artifacts/{appId}/users/{userId}/settings/general
+                await db.collection(`artifacts/${appId}/users/${userId}/settings`).doc('general').set({
+                    categories: CATEGORIES
+                }, { merge: true });
+                // No need to show success message every time, maybe just log it
+                console.log("Categories saved.");
+            } catch (e) {
+                console.error("Error saving categories:", e);
+                showMessage("บันทึกหมวดหมู่ไม่สำเร็จ", true);
             }
         }
-
-
-        // --- Firestore Setup and Data Handling ---
-
-        /** กำหนด Path Collection สำหรับผู้ใช้ปัจจุบัน */
-        const getCollectionRef = () => {
-            if (!db || !userId) throw new Error("Firebase or User ID not initialized.");
-            // Mandatory path: /artifacts/{appId}/users/{userId}/documents
-            return db.collection(`artifacts/${appId}/users/${userId}/documents`);
+        
+        async function loadCategories() {
+            if (!userId) return;
+            try {
+                const doc = await db.collection(`artifacts/${appId}/users/${userId}/settings`).doc('general').get();
+                if (doc.exists && doc.data().categories) {
+                    CATEGORIES = doc.data().categories;
+                    // Update any existing UI if needed (though usually loaded before render)
+                    updateAllCategoryDropdowns();
+                }
+            } catch (e) {
+                console.error("Error loading categories:", e);
+            }
+        }
+        
+        window.deleteCategory = async (index) => {
+            if (CATEGORIES.length <= 1) {
+                alert("ต้องมีหมวดหมู่อย่างน้อย 1 รายการ");
+                return;
+            }
+            CATEGORIES.splice(index, 1);
+            renderCategoryModalList();
+            updateAllCategoryDropdowns();
+            await saveCategories();
         };
 
-        /** Initialise Firebase และตรวจสอบสถานะผู้ใช้ */
-        async function initFirebaseAndAuth() {
-            document.getElementById('loadingOverlay').classList.remove('hidden');
-            try {
-                if (firebase.apps.length === 0) {
-                    firebase.initializeApp(firebaseConfig);
-                }
-                db = firebase.firestore();
-                auth = firebase.auth();
-                
-                // ใช้ Custom Token ถ้ามี, ไม่งั้นใช้ Anonymous Auth
-                await new Promise((resolve, reject) => {
-                    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-                        unsubscribe(); // หยุดฟังหลังจากการตรวจสอบครั้งแรก
-                        if (user) {
-                            userId = user.uid;
-                        } else {
-                            try {
-                                if (initialAuthToken) {
-                                    const userCredential = await auth.signInWithCustomToken(initialAuthToken);
-                                    userId = userCredential.user.uid;
-                                } else {
-                                    const userCredential = await auth.signInAnonymously();
-                                    userId = userCredential.user.uid;
-                                }
-                            } catch (e) {
-                                console.error("Auth failed, falling back to anonymous sign-in.", e);
-                                const userCredential = await auth.signInAnonymously();
-                                userId = userCredential.user.uid;
-                            }
-                        }
-                        
-                        document.getElementById('currentUserId').textContent = userId;
-                        // ตั้งค่าการทำงานของ Firestore Real-time Listener หลัง Auth
-                        fetchAndRenderDocuments();
-                        resolve();
-                    }, reject);
-                });
-                
-            } catch (error) {
-                console.error("Firebase Initialization Error:", error);
-                showMessage('ข้อผิดพลาดในการเชื่อมต่อ Firebase. โปรดตรวจสอบ Console.', true);
-            } finally {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-            }
-        }
-        
-        /** บันทึกหรืออัปเดตเอกสาร */
-        async function saveDocument() {
-            if (!userId) { showMessage('กำลังตรวจสอบสิทธิ์ผู้ใช้ กรุณาลองอีกครั้ง.', true); return; }
-            const data = getDocumentDataFromUI();
-            const saveBtn = document.getElementById('saveDocumentBtn');
-            const originalText = saveBtn.textContent;
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = `
-                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                กำลังบันทึก...
-            `;
-
-            try {
-                if (currentDocumentId) {
-                    // Update existing
-                    await getCollectionRef().doc(currentDocumentId).update(data);
-                    showMessage(`อัปเดตเอกสาร #${data.documentNumber || currentDocumentId} เรียบร้อยแล้ว`);
-                } else {
-                    // Add new document
-                    const docRef = await getCollectionRef().add({ 
-                        ...data, 
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
-                    });
-                    currentDocumentId = docRef.id;
-                    showMessage(`บันทึกเอกสารใหม่ #${data.documentNumber || docRef.id} เรียบร้อยแล้ว`);
-                }
-            } catch (e) {
-                console.error("Error saving document:", e);
-                showMessage('ข้อผิดพลาดในการบันทึกเอกสาร: ' + e.message, true);
-            } finally {
-                saveBtn.disabled = false;
-                saveBtn.textContent = originalText;
-            }
-        }
-
-        /** ดึงข้อมูลเอกสารทั้งหมดแบบ Real-time และ Render ใน Sidebar */
-        function fetchAndRenderDocuments() {
-            if (!userId) return; // ไม่ทำงานจนกว่าจะมี userId
-            
-            const docList = document.getElementById('documentList');
-            if (!docList) return; // Guard clause for robustness
-            
-            docList.innerHTML = '';
-            
-            // onSnapshot listener สำหรับการอัปเดตแบบ Real-time
-            getCollectionRef().orderBy('updatedAt', 'desc').onSnapshot(snapshot => {
-                docList.innerHTML = '';
-                if (snapshot.empty) {
-                    docList.innerHTML = '<li class="text-gray-500 italic">ยังไม่มีเอกสารที่บันทึกไว้</li>';
-                    createNewDocument();
+        document.getElementById('addNewCategoryBtn').onclick = async () => {
+            const input = document.getElementById('newCategoryInput');
+            const val = input.value.trim();
+            if (val) {
+                // Check duplicate
+                if (CATEGORIES.some(c => c.value === val)) {
+                    alert("มีหมวดหมู่นี้อยู่แล้ว");
                     return;
                 }
-
-                snapshot.docs.forEach(doc => {
-                    const data = doc.data();
-                    const docId = doc.id;
-                    const isActive = docId === currentDocumentId;
-
-                    const listItem = document.createElement('li');
-                    listItem.className = 'flex justify-between items-center p-2 rounded-lg transition duration-150 group ' + (isActive ? 'bg-indigo-200 shadow-inner' : 'hover:bg-gray-100');
-                    listItem.innerHTML = `
-                        <button class="flex-grow text-left text-sm font-medium truncate pr-2" data-doc-id="${docId}">
-                            ${data.documentType || 'เอกสาร'}: ${data.documentNumber || docId.substring(0, 8)} - ${data.customerName || 'ลูกค้าทั่วไป'}
-                        </button>
-                        <button class="delete-doc-btn text-red-400 hover:text-red-600 p-1 rounded-full group-hover:opacity-100 ${isActive ? 'opacity-100' : 'opacity-0'}" data-doc-id="${docId}" data-doc-name="${data.documentNumber || docId.substring(0, 8)}">
-                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mx-auto" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 10-2 0v6a1 1 0 102 0V8z" clip-rule="evenodd" /></svg>
-                        </button>
-                    `;
-                    docList.appendChild(listItem);
-
-                    // Event Listener สำหรับโหลดเอกสาร
-                    listItem.querySelector('button.flex-grow').addEventListener('click', () => loadDocument(docId));
-                });
                 
-                // Event Listeners สำหรับปุ่มลบ (ต้องทำหลัง render)
-                document.querySelectorAll('.delete-doc-btn').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        openDeleteModal(btn.dataset.docId, btn.dataset.docName);
-                    });
-                });
+                CATEGORIES.push({ value: val, label: val });
+                input.value = '';
+                renderCategoryModalList();
+                updateAllCategoryDropdowns();
+                await saveCategories();
+            }
+        };
 
-                // หากมีเอกสาร แต่ยังไม่มี ID ถูกเลือก ให้โหลดเอกสารแรก
-                if (!currentDocumentId && snapshot.docs.length > 0) {
-                    loadDocument(snapshot.docs[0].id);
-                } else if (currentDocumentId) {
-                    // หากเอกสารปัจจุบันถูกลบไปแล้ว ให้สร้างเอกสารใหม่
-                    if (!snapshot.docs.find(doc => doc.id === currentDocumentId)) {
-                        createNewDocument();
+        document.getElementById('manageCategoriesBtn').onclick = () => {
+            renderCategoryModalList();
+            document.getElementById('categoryModal').classList.remove('hidden');
+        };
+
+        document.getElementById('closeCategoryModalBtn').onclick = () => document.getElementById('categoryModal').classList.add('hidden');
+        document.getElementById('doneCategoryBtn').onclick = () => document.getElementById('categoryModal').classList.add('hidden');
+
+        // --- Firebase Integration ---
+        const getCollectionRef = () => db.collection(`artifacts/${appId}/users/${userId}/documents`);
+
+        async function initFirebase() {
+            const loading = document.getElementById('loadingOverlay');
+            loading.classList.remove('hidden');
+            try {
+                if (firebase.apps.length === 0) firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                auth = firebase.auth();
+
+                const userCred = initialAuthToken 
+                    ? await auth.signInWithCustomToken(initialAuthToken)
+                    : await auth.signInAnonymously();
+                
+                userId = userCred.user.uid;
+                document.getElementById('currentUserId').textContent = userId;
+                
+                // 1. Load Categories FIRST
+                await loadCategories();
+
+                // 2. Load Documents
+                getCollectionRef().orderBy('updatedAt', 'desc').onSnapshot(snap => {
+                    const list = document.getElementById('documentList');
+                    document.getElementById('docCount').textContent = snap.size;
+                    list.innerHTML = '';
+                    
+                    if (snap.empty) {
+                        list.innerHTML = '<li class="text-center text-gray-400 text-sm py-8 italic">ยังไม่มีเอกสาร</li>';
+                        return;
                     }
-                }
-                
-                // อัปเดตสถานะปุ่มบันทึก
-                const saveBtn = document.getElementById('saveDocumentBtn');
-                if (saveBtn) {
-                   saveBtn.textContent = currentDocumentId ? 'อัปเดตเอกสาร' : 'บันทึกเอกสาร';
-                }
-                
 
-            }, err => {
-                console.error("Firestore Snapshot Error:", err);
-                showMessage('ข้อผิดพลาดในการดึงข้อมูลเอกสาร.', true);
-            });
-        }
-        
-        /** โหลดเอกสารจาก Firestore และ Render */
-        async function loadDocument(docId) {
-            try {
-                const docSnap = await getCollectionRef().doc(docId).get();
-                if (docSnap.exists) {
-                    const data = docSnap.data();
-                    currentDocumentId = docId;
-                    renderDocumentData(data);
-                    showMessage(`โหลดเอกสาร #${data.documentNumber || docId.substring(0, 8)} เรียบร้อยแล้ว`);
-                    
-                    // อัปเดต UI ใน Sidebar
-                    document.querySelectorAll('#documentList button').forEach(btn => btn.closest('li').classList.remove('bg-indigo-200', 'shadow-inner'));
-                    document.querySelector(`button[data-doc-id="${docId}"]`)?.closest('li').classList.add('bg-indigo-200', 'shadow-inner');
-                    const saveBtn = document.getElementById('saveDocumentBtn');
-                    if (saveBtn) saveBtn.textContent = 'อัปเดตเอกสาร';
-                } else {
-                    showMessage('ไม่พบเอกสารนี้.', true);
-                    createNewDocument();
-                }
-            } catch (e) {
-                console.error("Error loading document:", e);
-                showMessage('ข้อผิดพลาดในการโหลดเอกสาร.', true);
-            }
-        }
-        
-        /** ลบเอกสาร */
-        async function deleteDocument(docId) {
-            try {
-                await getCollectionRef().doc(docId).delete();
-                showMessage(`ลบเอกสารเรียบร้อยแล้ว`);
-                if (currentDocumentId === docId) {
-                    currentDocumentId = null;
-                }
-            } catch (e) {
-                console.error("Error deleting document:", e);
-                showMessage('ข้อผิดพลาดในการลบเอกสาร.', true);
-            }
-        }
-
-        // --- Modal Handlers ---
-        
-        // Delete Modal
-        let docIdToDelete = null;
-
-        function openDeleteModal(docId, docName) {
-            docIdToDelete = docId;
-            document.getElementById('docToDeleteName').textContent = docName;
-            document.getElementById('deleteModal').classList.remove('hidden');
-            document.getElementById('deleteModal').classList.add('flex');
-        }
-
-        function closeDeleteModal() {
-            docIdToDelete = null;
-            document.getElementById('deleteModal').classList.add('hidden');
-            document.getElementById('deleteModal').classList.remove('flex');
-        }
-
-        document.getElementById('cancelDeleteBtn').addEventListener('click', closeDeleteModal);
-        document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
-            if (docIdToDelete) {
-                await deleteDocument(docIdToDelete);
-            }
-            closeDeleteModal();
-        });
-
-        // Preview Modal
-        function openPreviewModal() {
-             try {
-                const previewContent = document.getElementById('previewContent');
-                const inputDocument = document.getElementById('documentToCapture');
-                
-                // 1. โคลนเนื้อหาทั้งหมดและดึงข้อมูลล่าสุด
-                const data = getDocumentDataFromUI();
-                const documentClone = inputDocument.cloneNode(true);
-                
-                // 2. ลบส่วนควบคุมที่ไม่ต้องการใน Preview
-                documentClone.querySelector('.document-footer').style.marginTop = '4rem'; // ปรับระยะห่าง
-                documentClone.querySelector('#addItemBtn').remove();
-                
-                // ตรวจสอบและลบปุ่ม AI ช่วยสร้าง ถ้ามี
-                const aiBtn = documentClone.querySelector('#generatePaymentBtn');
-                if (aiBtn) aiBtn.remove();
-                
-                // 3. ปรับปรุง Header ของตารางให้ตรงกับขนาด Preview/PDF
-                const tableHeader = documentClone.querySelector('.flex.font-bold');
-                if(tableHeader) {
-                    tableHeader.classList.remove('md:text-sm');
-                    tableHeader.classList.add('text-xs', 'py-1');
-                    // ลบช่อง 'ลบ' ออกจาก Header ใน Preview
-                    const deleteHeaderSpan = tableHeader.querySelector('.w-8.text-center');
-                    if (deleteHeaderSpan) deleteHeaderSpan.remove();
-                }
-
-                // 4. วนลูปเพื่อแทนที่ Input/Select/Textarea ด้วยค่าจริง (Text/Span) และแก้ปัญหาข้อมูลไม่ตรง
-                documentClone.querySelectorAll('.item-row').forEach((rowClone, index) => {
-                    const rowData = data.items[index];
-                    if (!rowData) { rowClone.remove(); return; } 
-
-                    // ปรับปรุงขนาดแถวใน Preview/PDF
-                    rowClone.classList.remove('py-2', 'text-sm');
-                    rowClone.classList.add('py-1', 'text-xs');
-                    
-                    // ลบปุ่มลบออกจาก Row ใน Preview
-                    const deleteBtn = rowClone.querySelector('.delete-item-btn');
-                    if (deleteBtn) deleteBtn.remove();
-                    
-                    // ######################################################################
-                    // แก้ปัญหาหมวดหมู่และข้อมูลไม่ตรง/ถูกบัง
-                    // ######################################################################
-                    const elementsToReplace = [
-                        { name: 'category', value: rowData.category, width: 'w-28' }, // หมวดหมู่
-                        { name: 'productCode', value: rowData.productCode, width: 'w-16' }, // รหัสสินค้า
-                        { name: 'description', value: rowData.description, flex: true }, // รายละเอียด
-                        { name: 'width', value: rowData.width ? rowData.width.toFixed(2) : '', width: 'w-12', align: 'center' }, // กว้าง
-                        { name: 'height', value: rowData.height ? rowData.height.toFixed(2) : '', width: 'w-12', align: 'center' }, // สูง
-                        { name: 'quantity', value: rowData.quantity, width: 'w-12', align: 'center' }, // จำนวน
-                        { name: 'unitPrice', value: rowData.unitPrice.toLocaleString('th-TH', { minimumFractionDigits: 2 }), width: 'w-16', align: 'right' } // ราคา/หน่วย
-                    ];
-
-                    elementsToReplace.forEach(item => {
-                        const el = rowClone.querySelector(`[name="${item.name}"]`);
-                        if (el) {
-                            const span = document.createElement('div');
-                            span.textContent = item.value;
-                            // คัดลอก class ที่ควบคุม Layout
-                            const baseClass = item.flex ? 'flex-grow ml-1 mr-1' : `${item.width} mx-1 flex-shrink-0`; 
-                            span.className = `p-0 ${baseClass} ${item.align ? `text-${item.align}` : ''} whitespace-nowrap overflow-hidden`;
-
-                            el.parentNode.replaceChild(span, el);
-                        }
-                    });
-
-                    // แทนที่ input/textarea นอกตารางด้วย span/div
-                    rowClone.querySelectorAll('input, select, textarea').forEach(el => {
-                        // สำหรับ item-total ให้ข้ามเพราะมันเป็น span อยู่แล้ว
-                        if (el.classList.contains('item-total')) return;
-
-                        const textContent = el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : el.value;
-                        const displayElement = document.createElement(el.tagName === 'TEXTAREA' ? 'div' : 'span');
-                        displayElement.textContent = textContent;
-                        
-                        // คัดลอก class ที่จำเป็น (เช่น width, flex-grow) และลบ border/padding ของฟอร์ม
-                        const className = el.className;
-                        displayElement.className = className.replace('p-1', 'px-1').replace('border rounded', '').replace('resize-none', '').replace('w-full', 'w-full block');
-                        
-                        // การจัดการพิเศษสำหรับ input/select ที่มีค่าคงที่ (เช่น Company Name, Doc Type)
-                        if (el.id === 'documentType' || el.id === 'companyName' || el.id === 'taxRate') {
-                            displayElement.textContent = textContent;
-                            displayElement.className = el.className.replace('p-2', 'px-2').replace('border-2', '').replace('bg-gray-100', '');
-                        }
-                        
-                        el.parentNode.replaceChild(displayElement, el);
+                    snap.docs.forEach(doc => {
+                        const d = doc.data();
+                        const isActive = doc.id === currentDocumentId;
+                        const li = document.createElement('li');
+                        li.className = `p-3 rounded-xl cursor-pointer transition flex justify-between items-center group ${isActive ? 'bg-indigo-50 border-l-4 border-indigo-500' : 'hover:bg-gray-50'}`;
+                        li.innerHTML = `
+                            <div class="overflow-hidden" onclick="loadDocument('${doc.id}')">
+                                <div class="font-bold text-sm text-gray-700 truncate">${d.documentNumber || 'No No.'}</div>
+                                <div class="text-xs text-gray-500 truncate">${d.customerName || 'ไม่ระบุลูกค้า'}</div>
+                            </div>
+                            <button onclick="confirmDelete('${doc.id}', '${d.documentNumber}')" class="text-gray-300 hover:text-red-500 p-2 rounded-full opacity-0 group-hover:opacity-100 transition">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        `;
+                        list.appendChild(li);
                     });
                 });
-                
-                // แทนที่ input/textarea ในส่วนหัวและท้าย
-                documentClone.querySelectorAll('.document-container input, .document-container select, .document-container textarea').forEach(el => {
-                    const textContent = el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : el.value;
-                    const displayElement = document.createElement(el.tagName === 'TEXTAREA' ? 'div' : 'span');
-                    displayElement.textContent = textContent;
-                    
-                    // คัดลอก class ที่จำเป็น (เช่น width, flex-grow) และลบ border/padding ของฟอร์ม
-                    const className = el.className;
-                    displayElement.className = className.replace('p-1', 'px-1').replace('p-2', 'px-2').replace('border rounded', '').replace('border-2', '').replace('bg-gray-100', '');
-                    
-                    // ปรับปรุงการแสดงผลของ input date
-                    if (el.type === 'date' && textContent) {
-                        const date = new Date(textContent + 'T00:00:00'); // แก้ปัญหา Timezone offset
-                        displayElement.textContent = date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-                    }
-                    
-                    el.parentNode.replaceChild(displayElement, el);
-                });
-                
-                // 5. Clear existing preview and append clone
-                previewContent.innerHTML = '';
-                previewContent.appendChild(documentClone);
-                documentClone.style.margin = '0';
-                documentClone.style.boxShadow = 'none';
-                documentClone.style.padding = '0'; // ลบ padding เดิม
-                documentClone.querySelector('div:first-child').style.padding = '3rem'; // เพิ่ม padding กลับเข้าไปใน div แรก
-
-                // 6. Show modal
-                document.getElementById('previewModal').classList.remove('hidden');
-                document.getElementById('previewModal').classList.add('flex');
-            } catch (error) {
-                console.error("Error opening preview modal:", error);
-                showMessage('เกิดข้อผิดพลาดในการแสดงตัวอย่าง. โปรดดูใน Console.', true);
-            }
-        }
-
-        function closePreviewModal() {
-            document.getElementById('previewModal').classList.add('hidden');
-            document.getElementById('previewModal').classList.remove('flex');
-        }
-        
-        document.getElementById('previewDocumentBtn').addEventListener('click', openPreviewModal);
-        document.getElementById('closePreviewBtn').addEventListener('click', closePreviewModal);
-        document.getElementById('downloadPreviewPdfBtn').addEventListener('click', () => {
-             // ใช้องค์ประกอบที่อยู่ใน preview modal สำหรับการสร้าง PDF
-             const input = document.getElementById('previewContent').querySelector('#documentToCapture');
-             if (input) {
-                generatePdfFromElement(input);
-             } else {
-                showMessage('ไม่พบเนื้อหาเอกสารสำหรับการสร้าง PDF', true);
-             }
-        });
-
-        // --- Capture Image Logic ---
-        async function captureDocumentAsImage() {
-            // ใช้ฟังก์ชัน Preview เพื่อสร้าง Clone ที่เป็น Non-Interactive ก่อน
-            openPreviewModal(); 
-            const input = document.getElementById('previewContent').querySelector('#documentToCapture');
-            
-            if (!input) {
-                 showMessage('ไม่พบเนื้อหาเอกสารสำหรับการแคปหน้าจอ', true);
-                 closePreviewModal();
-                 return;
-            }
-
-            const docName = `${documentElements.docType.value}_${documentElements.docNumber.value || 'New'}.png`;
-
-            try {
-                document.getElementById('loadingOverlay').classList.remove('hidden');
-                
-                // ใช้ html2canvas กับ clone ที่เตรียมไว้แล้วใน modal
-                const canvas = await html2canvas(input, { scale: 2, logging: false });
-                const imgData = canvas.toDataURL('image/png');
-                
-                const link = document.createElement('a');
-                link.href = imgData;
-                link.download = docName;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                showMessage('แคปหน้าจอ (PNG) เรียบร้อยแล้ว!');
-
-            } catch (error) {
-                console.error("Image Capture Error:", error);
-                showMessage('เกิดข้อผิดพลาดในการแคปหน้าจอ.', true);
+            } catch (e) {
+                console.error(e);
+                showMessage('เกิดข้อผิดพลาดในการเชื่อมต่อ', true);
             } finally {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-                closePreviewModal(); // ปิด modal หลัง capture
+                loading.classList.add('hidden');
             }
         }
-        
-        // --- PDF Generation (Unified) ---
-        window.jsPDF = window.jspdf.jsPDF; 
 
-        function generatePdfFromElement(inputElement) {
-            const docName = `${documentElements.docType.value}_${documentElements.docNumber.value || 'New'}.pdf`;
-
-             html2canvas(inputElement, { scale: 2 }).then(canvas => {
-                const imgData = canvas.toDataURL('image/png');
-                const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
-                const pdfWidth = pdf.internal.pageSize.getWidth();
-                const pdfHeight = pdf.internal.pageSize.getHeight();
-                const imgHeight = canvas.height * pdfWidth / canvas.width;
-
-                let heightLeft = imgHeight;
-                let position = 0;
-
-                pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-                heightLeft -= pdfHeight;
-
-                while (heightLeft >= 0) {
-                    position = heightLeft - imgHeight;
-                    pdf.addPage();
-                    pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-                    heightLeft -= pdfHeight;
-                }
+        window.loadDocument = async (id) => {
+            const snap = await getCollectionRef().doc(id).get();
+            if (snap.exists) {
+                currentDocumentId = id;
+                renderDocumentData(snap.data());
                 
-                pdf.save(docName);
-                showMessage('สร้างไฟล์ PDF เรียบร้อยแล้ว!');
-            }).catch(error => {
-                console.error("PDF Creation Error:", error);
-                showMessage('เกิดข้อผิดพลาดในการสร้าง PDF. โปรดลองใหม่อีกครั้ง', true);
-            });
-        }
-        
-        // --- AI Logic (Gemini API Call) ---
-        const apiKey = ""; 
-        
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
+                document.querySelectorAll('#documentList li').forEach(li => li.classList.remove('bg-indigo-50', 'border-indigo-500', 'border-l-4'));
+                document.getElementById('saveDocumentBtn').querySelector('span').textContent = 'อัปเดต';
+                showMessage('โหลดข้อมูลเรียบร้อย');
+            }
+        };
 
-        async function generatePaymentDetails() {
+        window.confirmDelete = (id, name) => {
+            event.stopPropagation();
+            document.getElementById('docToDeleteName').textContent = name || 'ไม่มีชื่อ';
+            document.getElementById('deleteModal').classList.remove('hidden');
+            
+            document.getElementById('confirmDeleteBtn').onclick = async () => {
+                await getCollectionRef().doc(id).delete();
+                if (currentDocumentId === id) createNewDocument();
+                document.getElementById('deleteModal').classList.add('hidden');
+                showMessage('ลบเอกสารเรียบร้อย', true);
+            };
+        };
+
+        document.getElementById('cancelDeleteBtn').onclick = () => document.getElementById('deleteModal').classList.add('hidden');
+
+        document.getElementById('saveDocumentBtn').onclick = async () => {
+            const btn = document.getElementById('saveDocumentBtn');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+
+            try {
+                const data = getDocumentData();
+                if (currentDocumentId) {
+                    await getCollectionRef().doc(currentDocumentId).update(data);
+                } else {
+                    const ref = await getCollectionRef().add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                    currentDocumentId = ref.id;
+                }
+                showMessage('บันทึกข้อมูลสำเร็จ!');
+                btn.querySelector('span') ? btn.querySelector('span').textContent = 'อัปเดต' : null;
+            } catch (e) {
+                showMessage('บันทึกไม่สำเร็จ', true);
+            } finally {
+                btn.innerHTML = originalContent;
+                if (currentDocumentId) btn.querySelector('span').textContent = 'อัปเดต'; // Ensure text is correct
+                btn.disabled = false;
+            }
+        };
+
+        // --- View Mode & Mobile ---
+        const toggleViewMode = () => {
+            isMobileMode = !isMobileMode;
+            const paper = document.getElementById('documentToCapture');
+            const icon = document.getElementById('viewModeIcon');
+            const text = document.getElementById('viewModeText');
+            
+            if (isMobileMode) {
+                paper.classList.add('mobile-mode');
+                icon.textContent = '📱';
+                text.textContent = 'Mobile View';
+                // Adjust Main Workspace to allow full scroll
+            } else {
+                paper.classList.remove('mobile-mode');
+                icon.textContent = '💻';
+                text.textContent = 'Desktop View';
+            }
+        };
+        document.getElementById('toggleViewModeBtn').onclick = toggleViewMode;
+
+        // --- AI Payment Generation ---
+        const apiKey = ""; // Set empty, handled by environment
+        document.getElementById('generatePaymentBtn').onclick = async () => {
             const btn = document.getElementById('generatePaymentBtn');
             const box = document.getElementById('paymentDetail');
-            if (!btn || !box) {
-                 console.error('AI Button or Textarea not found.');
-                 return;
+            
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            const prompt = `เขียนเงื่อนไขการชำระเงินสั้นๆ ทางการภาษาไทย สำหรับลูกค้า ${els.customerName.value || 'ทั่วไป'} (มัดจำ 50% ส่วนที่เหลือชำระวันส่งมอบ)`;
+            
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                box.value = data.candidates[0].content.parts[0].text.trim();
+                showMessage('สร้างเงื่อนไขสำเร็จ');
+            } catch (e) {
+                showMessage('AI ทำงานไม่สำเร็จ', true);
+            } finally {
+                btn.innerHTML = '<i class="fas fa-magic"></i> AI';
             }
-            
-            const originalText = btn.innerHTML;
-            
-            btn.disabled = true; 
-            btn.innerHTML = `
-                <svg class="animate-spin h-4 w-4 mr-1 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                กำลังสร้าง...
-            `;
-            box.placeholder = 'AI กำลังทำงาน...';
-            
-            const customerName = document.getElementById('customerName').value || 'ทั่วไป';
-            const userQuery = `สร้างข้อความเงื่อนไขการชำระเงินสั้นๆ ทางการ สำหรับลูกค้า ${customerName} (มัดจำ 50% และส่วนที่เหลือชำระเมื่อส่งมอบ)`;
-            const systemPrompt = "คุณคือผู้ช่วยมืออาชีพด้านการเงินและการออกเอกสาร ให้คำแนะนำเงื่อนไขการชำระเงินที่กระชับและชัดเจนที่สุดในภาษาไทย";
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        };
 
-            const payload = {
-                contents: [{ parts: [{ text: userQuery }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-            };
+        // --- Preview & Capture & PDF ---
+        
+        // Helper to prepare clone for rendering
+        function prepareClone(clone) {
+            // Convert inputs to spans
+            clone.querySelectorAll('input, textarea, select').forEach(el => {
+                if (el.type === 'hidden') return;
+                const span = document.createElement('div');
+                
+                let val = el.value;
+                if (el.tagName === 'SELECT') val = el.options[el.selectedIndex].text;
+                if (el.type === 'date' && val) {
+                    val = new Date(val).toLocaleDateString('th-TH', {year:'numeric', month:'long', day:'numeric'});
+                }
 
-            const maxRetries = 3;
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    const res = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    if (res.status === 429) {
-                        if (attempt < maxRetries - 1) {
-                            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-                            await sleep(delay);
-                            continue; // Retry
-                        } else {
-                            throw new Error("Too many requests (429) and max retries reached.");
-                        }
-                    }
-
-                    const data = await res.json();
-                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    
-                    if (text) {
-                        box.value = text.trim();
-                        showMessage('สร้างเงื่อนไขการชำระเงินสำเร็จ!', false);
-                    } else {
-                        // Throw error if no text is returned
-                         throw new Error(data.error?.message || 'ไม่สามารถสร้างข้อความได้');
-                    }
-                    break; // Success, exit loop
-
-                } catch(e) { 
-                    console.error("AI Generation Error (Attempt " + (attempt + 1) + "):", e);
-                    if (attempt === maxRetries - 1) {
-                         showMessage('ข้อผิดพลาดในการสร้างเงื่อนไข AI. กรุณาลองใหม่หรือพิมพ์เอง.', true);
-                    }
-                } 
-            }
+                span.textContent = val;
+                span.className = el.className.replace('clean-input', '').replace('bg-white', '').replace('border', '');
+                span.style.width = el.style.width;
+                span.style.textAlign = getComputedStyle(el).textAlign;
+                
+                // Special styling for preview text
+                if (el.classList.contains('font-bold')) span.classList.add('font-bold');
+                
+                el.parentNode.replaceChild(span, el);
+            });
             
-            // Reset UI
-            btn.disabled = false; 
-            btn.innerHTML = originalText; 
-            box.placeholder = 'เช่น ชำระ 50% มัดจำ ส่วนที่เหลือชำระวันส่งมอบ';
-            updateTotalsUI(); // Trigger UI update just in case
+            // Remove UI elements
+            clone.querySelector('#addItemBtn')?.remove();
+            clone.querySelectorAll('.delete-item-btn').forEach(b => b.remove());
+            clone.querySelectorAll('.opacity-0').forEach(e => e.classList.remove('opacity-0')); // Show hidden elements if any valid ones
+            // Remove Delete Header
+            const headers = clone.querySelectorAll('.text-xs.font-semibold span');
+            if (headers.length > 0) headers[headers.length-1].remove();
+
+            return clone;
         }
 
-        // --- Event Listeners and Initialization ---
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // 1. Initialize Firebase and Auth
-            initFirebaseAndAuth();
-
-            // 2. Set default date
-            if (documentElements.docDate) {
-                 documentElements.docDate.value = new Date().toISOString().substring(0, 10);
-            }
-           
-            // 3. Add default item row and set up item container listeners
-            const addItemBtn = document.getElementById('addItemBtn');
-            if (addItemBtn) {
-                addItemBtn.addEventListener('click', () => {
-                    documentElements.itemsContainer.appendChild(createItemRow());
-                    renumberItems();
-                    updateTotalsUI();
-                });
-            }
+        document.getElementById('previewDocumentBtn').onclick = () => {
+            const content = document.getElementById('previewContent');
+            content.innerHTML = '';
+            const clone = document.getElementById('documentToCapture').cloneNode(true);
             
+            // Fix margins/shadows for preview
+            clone.classList.remove('shadow-paper', 'mobile-mode');
+            clone.style.margin = '0 auto';
+            clone.style.transform = 'scale(0.9)';
+            
+            content.appendChild(prepareClone(clone));
+            document.getElementById('previewModal').classList.remove('hidden');
+        };
 
-            // 4. Global listeners for total calculation
-            // Note: Listeners are added inside createItemRow for item-specific inputs.
-            // This is for document level inputs (tax rate, etc.)
-            Object.values(documentElements).forEach(el => {
-                if (el && (el.id === 'taxRate' || el.id === 'documentType' || el.id === 'documentNumber')) {
-                     el.addEventListener('input', updateTotalsUI);
+        document.getElementById('closePreviewBtn').onclick = () => document.getElementById('previewModal').classList.add('hidden');
+
+        document.getElementById('downloadPreviewPdfBtn').onclick = () => {
+             const element = document.getElementById('previewContent').firstChild;
+             generatePDF(element);
+        };
+
+        document.getElementById('captureDocumentBtn').onclick = async () => {
+            // Trigger preview first to get clean DOM
+            document.getElementById('previewDocumentBtn').click();
+            setTimeout(async () => {
+                const element = document.getElementById('previewContent').firstChild;
+                const canvas = await html2canvas(element, { scale: 2 });
+                const link = document.createElement('a');
+                link.download = `Document-${Date.now()}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                document.getElementById('closePreviewBtn').click();
+                showMessage('บันทึกรูปภาพแล้ว');
+            }, 500);
+        };
+
+        document.getElementById('printDocumentBtn').onclick = () => {
+             document.getElementById('previewDocumentBtn').click();
+             setTimeout(() => {
+                const element = document.getElementById('previewContent').firstChild;
+                generatePDF(element);
+             }, 500);
+        };
+
+        function generatePDF(element) {
+            html2canvas(element, { scale: 2 }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+                const w = pdf.internal.pageSize.getWidth();
+                const h = (canvas.height * w) / canvas.width;
+                pdf.addImage(imgData, 'PNG', 0, 0, w, h);
+                pdf.save(`Doc-${els.docNumber.value || 'New'}.pdf`);
+                showMessage('ดาวน์โหลด PDF แล้ว');
+            });
+        }
+
+        // --- Init ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initFirebase();
+            document.getElementById('newDocumentBtn').onclick = createNewDocument;
+            document.getElementById('addItemBtn').onclick = () => {
+                els.itemsContainer.appendChild(createItemRow());
+                renumberItems();
+            };
+            
+            // Initial Row
+            els.itemsContainer.appendChild(createItemRow());
+            
+            // Global Listeners for main total inputs
+            ['taxRate', 'documentType', 'documentNumber'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('input', updateTotalsUI);
                 }
             });
-            
-            // 5. Control buttons listeners (Check for existence before adding listener)
-            const newDocBtn = document.getElementById('newDocumentBtn');
-            if (newDocBtn) newDocBtn.addEventListener('click', createNewDocument);
-            
-            const saveDocBtn = document.getElementById('saveDocumentBtn');
-            if (saveDocBtn) saveDocBtn.addEventListener('click', saveDocument);
-            
-            const captureDocBtn = document.getElementById('captureDocumentBtn');
-            if (captureDocBtn) captureDocBtn.addEventListener('click', captureDocumentAsImage);
-            
-            const printDocBtn = document.getElementById('printDocumentBtn');
-            if (printDocBtn) printDocBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                openPreviewModal(); 
-            });
-            
-            // 6. AI Button listener (for payment details generation)
-            const generateAIBtn = document.getElementById('generatePaymentBtn');
-            if (generateAIBtn) generateAIBtn.addEventListener('click', generatePaymentDetails);
-            
-            // 7. View Mode Toggle Listener (New Feature)
-            if (toggleViewModeBtn) toggleViewModeBtn.addEventListener('click', toggleViewMode);
         });
+
     </script>
 </body>
 </html>
